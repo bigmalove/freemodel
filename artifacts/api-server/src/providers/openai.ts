@@ -4,13 +4,13 @@ import type { ChatCompletionRequest, ChatCompletionResponse, StreamChunk } from 
 const REASONING_MODELS = new Set(["gpt-5.5"]);
 
 // Map thinking-level suffix → OpenAI reasoning_effort value
-// OpenAI supports: "low" | "medium" | "high"
+// OpenAI supports: "minimal" | "low" | "medium" | "high" | "xhigh"
 const EFFORT_MAP: Record<string, string> = {
   low:    "low",
   medium: "medium",
   high:   "high",
-  xhigh:  "high",
-  max:    "high",
+  xhigh:  "xhigh",
+  max:    "xhigh",
 };
 
 function parseThinkingLevel(model: string): { baseModel: string; reasoningEffort: string | null } {
