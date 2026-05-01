@@ -1,5 +1,32 @@
 import type { ChatCompletionRequest, ChatCompletionResponse, StreamChunk } from "../types.js";
 
+// Models that behave like reasoning models (use max_completion_tokens, no temperature/top_p)
+const REASONING_MODELS = new Set(["gpt-5.5"]);
+
+// Map thinking-level suffix → OpenAI reasoning_effort value
+// OpenAI supports: "low" | "medium" | "high"
+const EFFORT_MAP: Record<string, string> = {
+  low:    "low",
+  medium: "medium",
+  high:   "high",
+  xhigh:  "high",
+  max:    "high",
+};
+
+function parseThinkingLevel(model: string): { baseModel: string; reasoningEffort: string | null } {
+  // Match: <model>-thinking-<level>  e.g. gpt-5.5-thinking-high
+  const withLevel = model.match(/^(.+)-thinking-(low|medium|high|xhigh|max)$/);
+  if (withLevel) {
+    return { baseModel: withLevel[1], reasoningEffort: EFFORT_MAP[withLevel[2]] };
+  }
+  // Match: <model>-thinking  (no level → default high)
+  const plain = model.match(/^(.+)-thinking$/);
+  if (plain) {
+    return { baseModel: plain[1], reasoningEffort: "high" };
+  }
+  return { baseModel: model, reasoningEffort: null };
+}
+
 export async function callOpenAI(
   request: ChatCompletionRequest,
 ): Promise<ChatCompletionResponse | AsyncIterable<StreamChunk>> {
@@ -13,25 +40,26 @@ export async function callOpenAI(
   // Replit integration proxy doesn't include /v1 in path
   const url = `${baseUrl}/chat/completions`;
 
-  // Strip -thinking suffix from o-series aliases (they reason by default)
-  const resolvedModel = request.model.replace(/-thinking$/, "");
+  // Parse thinking-level suffix (e.g. gpt-5.5-thinking-high → gpt-5.5 + effort=high)
+  const { baseModel, reasoningEffort } = parseThinkingLevel(request.model);
 
-  // Models that use max_completion_tokens instead of max_tokens and strip temperature/top_p
-  const REASONING_MODELS = new Set(["gpt-5.5", "gpt-5.5-pro"]);
-  const isOSeries = /^o\d/.test(resolvedModel) || REASONING_MODELS.has(resolvedModel);
+  // o-series: starts with o + digit. Reasoning models: explicit set.
+  const isOSeries = /^o\d/.test(baseModel);
+  const isReasoningModel = REASONING_MODELS.has(baseModel) || isOSeries;
 
-  // o-series / reasoning models don't support max_tokens or temperature; use max_completion_tokens instead
+  // Reasoning models don't support max_tokens or temperature/top_p
   const { max_tokens, temperature, top_p, ...restRequest } = request;
   const resolvedRequest: Record<string, unknown> = {
     ...restRequest,
-    model: resolvedModel,
-    ...(isOSeries
+    model: baseModel,
+    ...(isReasoningModel
       ? { ...(max_tokens !== undefined ? { max_completion_tokens: max_tokens } : {}) }
       : {
           ...(max_tokens !== undefined ? { max_tokens } : {}),
           ...(temperature !== undefined ? { temperature } : {}),
           ...(top_p !== undefined ? { top_p } : {}),
         }),
+    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
   };
   const body = JSON.stringify(resolvedRequest);
 

@@ -10,7 +10,13 @@ export interface ModelEntry {
 
 export const MODEL_REGISTRY: ModelEntry[] = [
   // ── OpenAI Chat ──────────────────────────────────────────────────────────
-  { id: "gpt-5.5",            provider: "openai", created: 1753747200 },
+  { id: "gpt-5.5",                  provider: "openai", created: 1753747200 },
+  { id: "gpt-5.5-thinking",         provider: "openai", created: 1753747200 },
+  { id: "gpt-5.5-thinking-low",     provider: "openai", created: 1753747200 },
+  { id: "gpt-5.5-thinking-medium",  provider: "openai", created: 1753747200 },
+  { id: "gpt-5.5-thinking-high",    provider: "openai", created: 1753747200 },
+  { id: "gpt-5.5-thinking-xhigh",   provider: "openai", created: 1753747200 },
+  { id: "gpt-5.5-thinking-max",     provider: "openai", created: 1753747200 },
   { id: "gpt-5.2",            provider: "openai", created: 1752537600 },
   { id: "gpt-5.1",            provider: "openai", created: 1751328000 },
   { id: "gpt-5",              provider: "openai", created: 1749600000 },
