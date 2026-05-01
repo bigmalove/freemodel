@@ -1,3 +1,4 @@
+import { logger } from "../lib/logger.js";
 import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -269,14 +270,28 @@ export async function callAnthropic(
     body["tools"] = convertToolsToAnthropic(request.tools);
   }
 
-  const response = await fetch(`${baseUrl}/v1/messages`, {
-    method: "POST",
+  const outboundUrl = `${baseUrl}/v1/messages`;
+  const outboundHeaders = {
+    "Content-Type": "application/json",
+    "x-api-key": apiKey,
+    "anthropic-version": "2023-06-01",
+  };
+  const outboundBody = JSON.stringify(body);
+
+  logger.info({
+    debug: "anthropic_outbound_request",
+    url: outboundUrl,
     headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
+      ...outboundHeaders,
+      "x-api-key": `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.parse(outboundBody),
+  }, "Anthropic outbound request");
+
+  const response = await fetch(outboundUrl, {
+    method: "POST",
+    headers: outboundHeaders,
+    body: outboundBody,
   });
 
   if (!response.ok) {
@@ -289,6 +304,15 @@ export async function callAnthropic(
   }
 
   const data = (await response.json()) as AnthropicApiResponse;
+  logger.info({
+    debug: "anthropic_response",
+    status: response.status,
+    responseHeaders: Object.fromEntries(response.headers.entries()),
+    model: data.model,
+    stop_reason: data.stop_reason,
+    usage: data.usage,
+    contentTypes: data.content?.map(b => b.type),
+  }, "Anthropic response received");
   return buildOpenAIResponse(data, request.model);
 }
 
