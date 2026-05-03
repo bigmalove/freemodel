@@ -485,6 +485,9 @@ export default function ConfigPage() {
           {settings?.reverseProxyEnabled && status?.reverseProxy && (
             <span className="text-xs text-green-400">
               Active — {status.pool?.size ?? 0} URL{(status.pool?.size ?? 0) === 1 ? "" : "s"}, {status.pool?.mode ?? "sticky"}
+              {status.pool?.mode === "round-robin" && status.pool?.nextIndex !== null && status.pool?.nextIndex !== undefined && (
+                <> · next: #{(status.pool.nextIndex ?? 0) + 1}/{status.pool.size}</>
+              )}
             </span>
           )}
           {!settings?.reverseProxyEnabled && (

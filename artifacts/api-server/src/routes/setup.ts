@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   isReverseProxyActive,
+  peekNextPoolIndex,
   resolveProviderSource,
   type ProviderEndpointSource,
   type ProviderName,
@@ -38,6 +39,7 @@ router.get("/api/setup-status", (_req, res) => {
     pool: {
       size: settings.reverseProxyPool.length,
       mode: settings.reverseProxyMode,
+      nextIndex: peekNextPoolIndex(),
     },
   });
 });

@@ -18,7 +18,7 @@ export interface SetupStatus {
   };
   providerSources?: Record<ProviderName, ProviderSource | null>;
   reverseProxy?: boolean;
-  pool?: { size: number; mode: ReverseProxyMode };
+  pool?: { size: number; mode: ReverseProxyMode; nextIndex: number | null };
 }
 
 export interface PublicProviderOverride {

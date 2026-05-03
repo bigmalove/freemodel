@@ -101,8 +101,8 @@ export function getSettings(): ServerSettings {
       }
     }
     // Legacy edge case: pool empty but a legacy key exists alongside an
-    // override-only configuration. Surface the key to the first override that
-    // has a URL but no key, so the previous fallback behaviour is preserved.
+    // override-only configuration. Apply the legacy key to *every* override
+    // that has a URL but no key, preserving the prior global-fallback behaviour.
     if (pool.length === 0 && legacyKey) {
       const overridesRaw = loaded["providerOverrides"];
       if (overridesRaw && typeof overridesRaw === "object") {

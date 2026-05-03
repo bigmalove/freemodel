@@ -41,6 +41,14 @@ function pickPoolIndex(pool: PoolEntry[], mode: "round-robin" | "sticky"): numbe
   return idx;
 }
 
+/** Peek the index that round-robin will pick next, without advancing. */
+export function peekNextPoolIndex(): number | null {
+  const s = getSettings();
+  if (!s.reverseProxyEnabled || s.reverseProxyPool.length === 0) return null;
+  if (s.reverseProxyMode === "sticky") return 0;
+  return rrCursor % s.reverseProxyPool.length;
+}
+
 /**
  * Resolve the upstream endpoint for a provider.
  *
@@ -75,7 +83,7 @@ export function resolveProviderEndpoint(provider: ProviderName): ProviderEndpoin
       const poolSize = settings.reverseProxyPool.length;
       // Lightweight visibility into rotation. Logged per request — easy to
       // grep when debugging round-robin behaviour.
-      logger.debug(
+      logger.info(
         { provider, mode: settings.reverseProxyMode, upstreamIndex: idx, poolSize, url: entry.url },
         "reverse-proxy pool pick",
       );
