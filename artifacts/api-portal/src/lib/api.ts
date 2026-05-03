@@ -1,6 +1,10 @@
 const API_BASE = "/api";
 const V1_BASE = "/v1";
 
+export type ProviderName = "openai" | "anthropic" | "gemini" | "openrouter";
+
+export type ProviderSource = "upstream" | "local-env" | "per-provider override";
+
 export interface SetupStatus {
   configured: boolean;
   providers: {
@@ -10,7 +14,13 @@ export interface SetupStatus {
     openrouter: boolean;
     proxyKey: boolean;
   };
+  providerSources?: Record<ProviderName, ProviderSource | null>;
   reverseProxy?: boolean;
+}
+
+export interface PublicProviderOverride {
+  url: string;
+  apiKeySet: boolean;
 }
 
 export interface Settings {
@@ -18,6 +28,13 @@ export interface Settings {
   reverseProxyEnabled: boolean;
   reverseProxyUrl: string;
   reverseProxyApiKeySet: boolean;
+  providerOverrides: Record<ProviderName, PublicProviderOverride>;
+}
+
+export interface ProviderOverridePatch {
+  url?: string;
+  // Empty string = leave unchanged; null = clear the stored key.
+  apiKey?: string | null;
 }
 
 export interface SettingsPatch {
@@ -26,6 +43,7 @@ export interface SettingsPatch {
   reverseProxyUrl?: string;
   // Empty string = leave unchanged; null = clear the stored key.
   reverseProxyApiKey?: string | null;
+  providerOverrides?: Partial<Record<ProviderName, ProviderOverridePatch>>;
 }
 
 export interface ModelEntry {
