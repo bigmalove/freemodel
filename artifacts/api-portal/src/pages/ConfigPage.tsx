@@ -494,6 +494,9 @@ export default function ConfigPage() {
             <span className="text-xs text-muted-foreground">Disabled — using local env keys</span>
           )}
         </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Tip: Resubmitting a row with the same URL and a blank key field preserves that row's existing key. Changing the URL of a row clears its stored key — re-enter the key for the new URL.
+        </p>
 
         {rpErr && <div className="text-xs text-destructive">{rpErr}</div>}
       </div>

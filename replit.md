@@ -99,7 +99,9 @@ Note `gemini` provider maps to upstream segment `google`.
 - Switching modes/pool is instant (no restart). Implemented in `artifacts/api-server/src/lib/providerEndpoint.ts`.
 - Each pool pick is logged at `info` level (`reverse-proxy pool pick` with `provider`, `mode`, `upstreamIndex`, `poolSize`, `url`). The portal's pool-status pill also shows the next round-robin index live.
 
-**Legacy compat**: PATCH `/api/settings` still accepts the old scalar `reverseProxyUrl`/`reverseProxyApiKey` and maps them onto pool[0]. GET responses expose only the new pool shape.
+**Key preservation**: Pool POST is atomic-replace, but a row resubmitted with the *same* URL and blank `apiKey` keeps its previously stored key. Changing a row's URL drops the prior key — the new URL needs an explicit key.
+
+**Legacy compat**: PATCH `/api/settings` still accepts the old scalar `reverseProxyUrl`/`reverseProxyApiKey` and maps them onto pool[0]. Override-only legacy configs (no global URL but a global key) get the legacy key applied to every override URL that lacks its own key. GET responses expose only the new pool shape.
 
 ## Persistence
 
