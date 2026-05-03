@@ -9,16 +9,38 @@ export interface PoolEntry {
   apiKey: string;
 }
 
+export interface ProviderOverrideEntry {
+  url: string;
+  apiKey: string;
+}
+
+export type ProviderOverrides = Record<ProviderName, ProviderOverrideEntry>;
+
 export interface ServerSettings {
   sillyTavernMode: boolean;
+  reverseProxyEnabled: boolean;
   reverseProxyMode: ReverseProxyMode;
   reverseProxyPool: PoolEntry[];
+  providerOverrides: ProviderOverrides;
+}
+
+const PROVIDERS: readonly ProviderName[] = ["openai", "anthropic", "gemini", "openrouter"];
+
+function emptyOverrides(): ProviderOverrides {
+  return {
+    openai: { url: "", apiKey: "" },
+    anthropic: { url: "", apiKey: "" },
+    gemini: { url: "", apiKey: "" },
+    openrouter: { url: "", apiKey: "" },
+  };
 }
 
 const DEFAULTS: ServerSettings = {
   sillyTavernMode: false,
+  reverseProxyEnabled: false,
   reverseProxyMode: "sticky",
   reverseProxyPool: [],
+  providerOverrides: emptyOverrides(),
 };
 
 let _settings: ServerSettings | null = null;
@@ -46,6 +68,21 @@ function normalizeMode(raw: unknown): ReverseProxyMode {
   return raw === "round-robin" ? "round-robin" : "sticky";
 }
 
+function normalizeOverrides(raw: unknown): ProviderOverrides {
+  const out = emptyOverrides();
+  if (!raw || typeof raw !== "object") return out;
+  const obj = raw as Record<string, unknown>;
+  for (const p of PROVIDERS) {
+    const entry = obj[p];
+    if (!entry || typeof entry !== "object") continue;
+    const v = entry as Record<string, unknown>;
+    const url = typeof v["url"] === "string" ? v["url"].trim().replace(/\/+$/, "") : "";
+    const apiKey = typeof v["apiKey"] === "string" ? v["apiKey"] : "";
+    out[p] = { url, apiKey };
+  }
+  return out;
+}
+
 export function getSettings(): ServerSettings {
   if (_settings === null) {
     const loaded = readJson<Record<string, unknown>>("server_settings.json", {});
@@ -53,8 +90,13 @@ export function getSettings(): ServerSettings {
       ...DEFAULTS,
       sillyTavernMode:
         typeof loaded["sillyTavernMode"] === "boolean" ? loaded["sillyTavernMode"] : DEFAULTS.sillyTavernMode,
+      reverseProxyEnabled:
+        typeof loaded["reverseProxyEnabled"] === "boolean"
+          ? loaded["reverseProxyEnabled"]
+          : DEFAULTS.reverseProxyEnabled,
       reverseProxyMode: normalizeMode(loaded["reverseProxyMode"]),
       reverseProxyPool: normalizePool(loaded["reverseProxyPool"]),
+      providerOverrides: normalizeOverrides(loaded["providerOverrides"]),
     };
   }
   return _settings;
@@ -80,6 +122,10 @@ export function updateSettings(patch: Partial<ServerSettings>): ServerSettings {
 
   if (patch.reverseProxyMode !== undefined) {
     next.reverseProxyMode = normalizeMode(patch.reverseProxyMode);
+  }
+
+  if (patch.providerOverrides !== undefined) {
+    next.providerOverrides = normalizeOverrides(patch.providerOverrides);
   }
 
   _settings = next;
