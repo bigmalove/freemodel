@@ -6,3 +6,9 @@ id = "nCYa5kzi5Hj0Q4HyetFzA"
 uri = "file://.local/exports/ai-gateway-source.zip"
 type = "unspecified"
 title = "AI Gateway 源码包 (227 KB)"
+
+[[outputs]]
+id = "PAQ3V-y_cqPAZ4HrN1Y14"
+uri = "file://exports/project.zip"
+type = "unspecified"
+title = "项目源码 (project.zip)"
