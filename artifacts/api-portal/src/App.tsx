@@ -1,12 +1,14 @@
 import { useState } from "react";
-import StatusPage from "./pages/ConfigPage";
+import ConfigPage from "./pages/ConfigPage";
+import ModelsPage from "./pages/ModelsPage";
 import DocsPage from "./pages/DocsPage";
 
-type Tab = "status" | "docs";
+type Tab = "config" | "models" | "docs";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "status", label: "节点状态" },
-  { id: "docs", label: "接入文档" },
+  { id: "config", label: "配置" },
+  { id: "models", label: "模型管理" },
+  { id: "docs", label: "API 文档" },
 ];
 
 function GatewayIcon() {
@@ -19,16 +21,17 @@ function GatewayIcon() {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("status");
+  const [activeTab, setActiveTab] = useState<Tab>("config");
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
+      {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
           <GatewayIcon />
           <div>
-            <h1 className="text-sm font-semibold text-foreground leading-none">AI 上游节点</h1>
-            <p className="text-xs text-muted-foreground leading-none mt-0.5">反向代理池成员</p>
+            <h1 className="text-sm font-semibold text-foreground leading-none">AI 网关</h1>
+            <p className="text-xs text-muted-foreground leading-none mt-0.5">管理门户</p>
           </div>
           <div className="ml-auto flex items-center gap-1">
             <span className="size-2 rounded-full bg-green-400 animate-pulse" />
@@ -37,6 +40,7 @@ export default function App() {
         </div>
       </header>
 
+      {/* Navigation */}
       <div className="border-b border-border bg-card/30">
         <div className="max-w-5xl mx-auto px-4">
           <nav className="flex gap-0">
@@ -57,9 +61,11 @@ export default function App() {
         </div>
       </div>
 
+      {/* Content */}
       <main className="flex-1">
         <div className="max-w-5xl mx-auto px-4 py-6">
-          {activeTab === "status" && <StatusPage />}
+          {activeTab === "config" && <ConfigPage />}
+          {activeTab === "models" && <ModelsPage />}
           {activeTab === "docs" && <DocsPage />}
         </div>
       </main>
