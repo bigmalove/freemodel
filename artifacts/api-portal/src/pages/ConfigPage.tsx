@@ -37,7 +37,7 @@ export default function ConfigPage() {
         setStatus(s);
         setSettings(cfg);
         setRpUrl(cfg.reverseProxyUrl ?? "");
-        setRpKey(cfg.reverseProxyApiKey ?? "");
+        setRpKey(""); // never pre-fill the secret; backend doesn't return it
       })
       .catch((e) => setLoadErr(String(e)));
   }, []);
@@ -66,16 +66,31 @@ export default function ConfigPage() {
       if (url && !/^https?:\/\//i.test(url)) {
         throw new Error("URL must start with http:// or https://");
       }
-      const updated = await updateSettings({
-        reverseProxyUrl: url,
-        reverseProxyApiKey: rpKey,
-      });
+      // Empty key field = leave the stored key unchanged.
+      const patch: import("../lib/api").SettingsPatch = { reverseProxyUrl: url };
+      if (rpKey.length > 0) patch.reverseProxyApiKey = rpKey;
+      const updated = await updateSettings(patch);
       setSettings(updated);
       setRpUrl(updated.reverseProxyUrl);
+      setRpKey(""); // clear input after save
       const s = await fetchSetupStatus();
       setStatus(s);
       setRpSaved(true);
       setTimeout(() => setRpSaved(false), 2000);
+    } catch (e) {
+      setRpErr(String(e));
+    } finally {
+      setRpSaving(false);
+    }
+  }
+
+  async function clearReverseProxyKey() {
+    setRpSaving(true);
+    setRpErr("");
+    try {
+      const updated = await updateSettings({ reverseProxyApiKey: null });
+      setSettings(updated);
+      setRpKey("");
     } catch (e) {
       setRpErr(String(e));
     } finally {
@@ -213,13 +228,29 @@ export default function ConfigPage() {
           <label className="block text-xs font-medium text-muted-foreground">
             Upstream API Key <span className="opacity-60">(only needed if upstream sets PROXY_API_KEY)</span>
           </label>
-          <input
-            type="password"
-            value={rpKey}
-            onChange={(e) => setRpKey(e.target.value)}
-            placeholder="sk-..."
-            className="w-full rounded-md border border-input bg-secondary/30 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          />
+          <div className="flex gap-2">
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={rpKey}
+              onChange={(e) => setRpKey(e.target.value)}
+              placeholder={settings?.reverseProxyApiKeySet ? "•••••••• (saved — leave blank to keep)" : "sk-..."}
+              className="flex-1 rounded-md border border-input bg-secondary/30 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            {settings?.reverseProxyApiKeySet && (
+              <button
+                type="button"
+                onClick={clearReverseProxyKey}
+                disabled={rpSaving}
+                className="rounded-md border border-border bg-secondary/30 px-3 py-2 text-xs text-muted-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The saved key is never sent back to the browser. Leave blank when saving to keep the existing one.
+          </p>
         </div>
 
         <div className="flex items-center gap-3">

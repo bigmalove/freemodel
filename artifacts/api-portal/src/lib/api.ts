@@ -17,7 +17,15 @@ export interface Settings {
   sillyTavernMode: boolean;
   reverseProxyEnabled: boolean;
   reverseProxyUrl: string;
-  reverseProxyApiKey: string;
+  reverseProxyApiKeySet: boolean;
+}
+
+export interface SettingsPatch {
+  sillyTavernMode?: boolean;
+  reverseProxyEnabled?: boolean;
+  reverseProxyUrl?: string;
+  // Empty string = leave unchanged; null = clear the stored key.
+  reverseProxyApiKey?: string | null;
 }
 
 export interface ModelEntry {
@@ -50,12 +58,12 @@ export async function fetchSetupStatus(): Promise<SetupStatus> {
 }
 
 export async function fetchSettings(): Promise<Settings> {
-  const res = await fetch(`${API_BASE}/settings`);
+  const res = await fetch(`${API_BASE}/settings`, { headers: authHeaders() });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-export async function updateSettings(patch: Partial<Settings>): Promise<Settings> {
+export async function updateSettings(patch: SettingsPatch): Promise<Settings> {
   const res = await fetch(`${API_BASE}/settings`, {
     method: "POST",
     headers: authHeaders(),
