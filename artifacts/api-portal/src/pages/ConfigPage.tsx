@@ -140,6 +140,8 @@ export default function ConfigPage() {
     try {
       const updated = await updateSettings({ reverseProxyMode: mode });
       setSettings(updated);
+      const s = await fetchSetupStatus();
+      setStatus(s);
     } catch (e) {
       setRpErr(String(e));
     }

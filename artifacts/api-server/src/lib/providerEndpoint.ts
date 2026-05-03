@@ -1,4 +1,5 @@
 import { getSettings, type ProviderName, type PoolEntry } from "./settings.js";
+import { logger } from "./logger.js";
 
 export type { ProviderName };
 
@@ -71,12 +72,19 @@ export function resolveProviderEndpoint(provider: ProviderName): ProviderEndpoin
     const idx = pickPoolIndex(settings.reverseProxyPool, settings.reverseProxyMode);
     if (idx >= 0) {
       const entry = settings.reverseProxyPool[idx]!;
+      const poolSize = settings.reverseProxyPool.length;
+      // Lightweight visibility into rotation. Logged per request — easy to
+      // grep when debugging round-robin behaviour.
+      logger.debug(
+        { provider, mode: settings.reverseProxyMode, upstreamIndex: idx, poolSize, url: entry.url },
+        "reverse-proxy pool pick",
+      );
       return {
         baseUrl: `${entry.url}/modelfarm/${UPSTREAM_SEGMENT[provider]}`,
         apiKey: entry.apiKey || defaultKey,
         source: "upstream",
         upstreamIndex: idx,
-        poolSize: settings.reverseProxyPool.length,
+        poolSize,
       };
     }
   }

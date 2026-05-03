@@ -92,12 +92,27 @@ export function getSettings(): ServerSettings {
   if (_settings === null) {
     const loaded = readJson<Record<string, unknown>>("server_settings.json", {});
     let pool = normalizePool(loaded["reverseProxyPool"]);
+    const legacyKey = typeof loaded["reverseProxyApiKey"] === "string" ? (loaded["reverseProxyApiKey"] as string) : "";
     // Legacy migration: if no pool but old scalar URL exists, seed it.
     if (pool.length === 0 && typeof loaded["reverseProxyUrl"] === "string") {
       const legacyUrl = (loaded["reverseProxyUrl"] as string).trim().replace(/\/+$/, "");
       if (legacyUrl) {
-        const legacyKey = typeof loaded["reverseProxyApiKey"] === "string" ? (loaded["reverseProxyApiKey"] as string) : "";
         pool = [{ url: legacyUrl, apiKey: legacyKey }];
+      }
+    }
+    // Legacy edge case: pool empty but a legacy key exists alongside an
+    // override-only configuration. Surface the key to the first override that
+    // has a URL but no key, so the previous fallback behaviour is preserved.
+    if (pool.length === 0 && legacyKey) {
+      const overridesRaw = loaded["providerOverrides"];
+      if (overridesRaw && typeof overridesRaw === "object") {
+        const o = overridesRaw as Record<string, unknown>;
+        for (const p of ["openai", "anthropic", "gemini", "openrouter"] as const) {
+          const entry = o[p] as { url?: string; apiKey?: string } | undefined;
+          if (entry && typeof entry.url === "string" && entry.url && (!entry.apiKey || entry.apiKey === "")) {
+            entry.apiKey = legacyKey;
+          }
+        }
       }
     }
     _settings = {
