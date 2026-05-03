@@ -2,13 +2,6 @@ import { readJson, writeJson } from "./persist.js";
 
 export type ProviderName = "openai" | "anthropic" | "gemini" | "openrouter";
 
-export interface ProviderOverride {
-  url: string;
-  apiKey: string;
-}
-
-export type ProviderOverrides = Record<ProviderName, ProviderOverride>;
-
 export type ReverseProxyMode = "round-robin" | "sticky";
 
 export interface PoolEntry {
@@ -18,52 +11,17 @@ export interface PoolEntry {
 
 export interface ServerSettings {
   sillyTavernMode: boolean;
-  reverseProxyEnabled: boolean;
   reverseProxyMode: ReverseProxyMode;
   reverseProxyPool: PoolEntry[];
-  providerOverrides: ProviderOverrides;
 }
-
-const EMPTY_OVERRIDE: ProviderOverride = { url: "", apiKey: "" };
-
-const EMPTY_OVERRIDES: ProviderOverrides = {
-  openai: { ...EMPTY_OVERRIDE },
-  anthropic: { ...EMPTY_OVERRIDE },
-  gemini: { ...EMPTY_OVERRIDE },
-  openrouter: { ...EMPTY_OVERRIDE },
-};
 
 const DEFAULTS: ServerSettings = {
   sillyTavernMode: false,
-  reverseProxyEnabled: false,
   reverseProxyMode: "sticky",
   reverseProxyPool: [],
-  providerOverrides: EMPTY_OVERRIDES,
 };
 
 let _settings: ServerSettings | null = null;
-
-function normalizeOverrides(raw: unknown): ProviderOverrides {
-  const out: ProviderOverrides = {
-    openai: { ...EMPTY_OVERRIDE },
-    anthropic: { ...EMPTY_OVERRIDE },
-    gemini: { ...EMPTY_OVERRIDE },
-    openrouter: { ...EMPTY_OVERRIDE },
-  };
-  if (!raw || typeof raw !== "object") return out;
-  const r = raw as Record<string, unknown>;
-  for (const p of ["openai", "anthropic", "gemini", "openrouter"] as const) {
-    const v = r[p];
-    if (v && typeof v === "object") {
-      const vo = v as Record<string, unknown>;
-      out[p] = {
-        url: typeof vo["url"] === "string" ? vo["url"] : "",
-        apiKey: typeof vo["apiKey"] === "string" ? vo["apiKey"] : "",
-      };
-    }
-  }
-  return out;
-}
 
 function normalizePool(raw: unknown): PoolEntry[] {
   if (!Array.isArray(raw)) return [];
@@ -91,37 +49,12 @@ function normalizeMode(raw: unknown): ReverseProxyMode {
 export function getSettings(): ServerSettings {
   if (_settings === null) {
     const loaded = readJson<Record<string, unknown>>("server_settings.json", {});
-    let pool = normalizePool(loaded["reverseProxyPool"]);
-    const legacyKey = typeof loaded["reverseProxyApiKey"] === "string" ? (loaded["reverseProxyApiKey"] as string) : "";
-    // Legacy migration: if no pool but old scalar URL exists, seed it.
-    if (pool.length === 0 && typeof loaded["reverseProxyUrl"] === "string") {
-      const legacyUrl = (loaded["reverseProxyUrl"] as string).trim().replace(/\/+$/, "");
-      if (legacyUrl) {
-        pool = [{ url: legacyUrl, apiKey: legacyKey }];
-      }
-    }
-    // Legacy edge case: pool empty but a legacy key exists alongside an
-    // override-only configuration. Apply the legacy key to *every* override
-    // that has a URL but no key, preserving the prior global-fallback behaviour.
-    if (pool.length === 0 && legacyKey) {
-      const overridesRaw = loaded["providerOverrides"];
-      if (overridesRaw && typeof overridesRaw === "object") {
-        const o = overridesRaw as Record<string, unknown>;
-        for (const p of ["openai", "anthropic", "gemini", "openrouter"] as const) {
-          const entry = o[p] as { url?: string; apiKey?: string } | undefined;
-          if (entry && typeof entry.url === "string" && entry.url && (!entry.apiKey || entry.apiKey === "")) {
-            entry.apiKey = legacyKey;
-          }
-        }
-      }
-    }
     _settings = {
       ...DEFAULTS,
-      sillyTavernMode: typeof loaded["sillyTavernMode"] === "boolean" ? loaded["sillyTavernMode"] : DEFAULTS.sillyTavernMode,
-      reverseProxyEnabled: typeof loaded["reverseProxyEnabled"] === "boolean" ? loaded["reverseProxyEnabled"] : DEFAULTS.reverseProxyEnabled,
+      sillyTavernMode:
+        typeof loaded["sillyTavernMode"] === "boolean" ? loaded["sillyTavernMode"] : DEFAULTS.sillyTavernMode,
       reverseProxyMode: normalizeMode(loaded["reverseProxyMode"]),
-      reverseProxyPool: pool,
-      providerOverrides: normalizeOverrides(loaded["providerOverrides"]),
+      reverseProxyPool: normalizePool(loaded["reverseProxyPool"]),
     };
   }
   return _settings;
@@ -132,9 +65,8 @@ export function updateSettings(patch: Partial<ServerSettings>): ServerSettings {
   const next: ServerSettings = { ...current, ...patch };
 
   if (patch.reverseProxyPool) {
-    // Pool is replaced atomically; preserve existing keys when an entry with
-    // the same URL is resubmitted with a blank apiKey (the route layer also
-    // applies null-vs-empty semantics before we get here).
+    // Pool is replaced atomically; the route layer handles
+    // null-vs-empty key semantics before reaching this point.
     const seen = new Set<string>();
     const cleaned: PoolEntry[] = [];
     for (const e of patch.reverseProxyPool) {
@@ -144,20 +76,6 @@ export function updateSettings(patch: Partial<ServerSettings>): ServerSettings {
       cleaned.push({ url, apiKey: e.apiKey ?? "" });
     }
     next.reverseProxyPool = cleaned;
-  }
-
-  if (patch.providerOverrides) {
-    const merged: ProviderOverrides = { ...current.providerOverrides };
-    for (const p of ["openai", "anthropic", "gemini", "openrouter"] as const) {
-      const incoming = patch.providerOverrides[p];
-      if (incoming) {
-        merged[p] = {
-          url: (incoming.url ?? current.providerOverrides[p].url).trim().replace(/\/+$/, ""),
-          apiKey: incoming.apiKey ?? current.providerOverrides[p].apiKey,
-        };
-      }
-    }
-    next.providerOverrides = merged;
   }
 
   if (patch.reverseProxyMode !== undefined) {
