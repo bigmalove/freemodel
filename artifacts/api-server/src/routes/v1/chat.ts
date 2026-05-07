@@ -10,6 +10,27 @@ import type { ChatCompletionRequest, StreamChunk } from "../../types.js";
 
 const router = Router();
 
+// Whitelisted client request headers to forward to upstream providers.
+// Anything outside this list is dropped at the gateway. The whitelist is
+// upstream-agnostic; each provider picks the headers it cares about.
+const PASSTHROUGH_HEADERS = [
+  "anthropic-beta",
+  "anthropic-version",
+  "openai-beta",
+  "openai-organization",
+  "openai-project",
+  "x-goog-api-client",
+] as const;
+
+function extractPassthroughHeaders(req: Request): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of PASSTHROUGH_HEADERS) {
+    const v = req.headers[k];
+    if (typeof v === "string" && v.length > 0) out[k] = v;
+  }
+  return out;
+}
+
 router.post("/v1/chat/completions", requireAuth, async (req: Request, res: Response) => {
   // Allow up to 600 seconds for model generation
   res.setTimeout(600_000);
@@ -47,22 +68,23 @@ router.post("/v1/chat/completions", requireAuth, async (req: Request, res: Respo
   }
 
   const request: ChatCompletionRequest = { ...body, model, messages };
+  const clientHeaders = extractPassthroughHeaders(req);
 
   try {
     let result: Awaited<ReturnType<typeof callOpenAI>>;
 
     switch (provider) {
       case "openai":
-        result = await callOpenAI(request);
+        result = await callOpenAI(request, clientHeaders);
         break;
       case "anthropic":
-        result = await callAnthropic(request);
+        result = await callAnthropic(request, clientHeaders);
         break;
       case "gemini":
-        result = await callGemini(request);
+        result = await callGemini(request, clientHeaders);
         break;
       case "openrouter":
-        result = await callOpenRouter(request);
+        result = await callOpenRouter(request, clientHeaders);
         break;
       default:
         res.status(500).json({ error: { message: "Unknown provider" } });
