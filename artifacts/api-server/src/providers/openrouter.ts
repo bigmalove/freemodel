@@ -25,6 +25,7 @@ function isClaudeModel(modelId: string): boolean {
 
 export async function callOpenRouter(
   request: ChatCompletionRequest,
+  clientHeaders: Record<string, string> = {},
 ): Promise<ChatCompletionResponse | AsyncIterable<StreamChunk>> {
   const { baseUrl, apiKey } = resolveProviderEndpoint("openrouter");
 
@@ -164,14 +165,22 @@ export async function callOpenRouter(
     delete body["temperature"];
   }
 
+  const outboundHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+    "HTTP-Referer": "https://replit.com",
+    "X-Title": "AI Gateway",
+    // Forward Anthropic / OpenAI beta headers when the caller asks for them —
+    // OpenRouter passes them through to the underlying upstream.
+    ...(clientHeaders["anthropic-beta"]
+      ? { "anthropic-beta": clientHeaders["anthropic-beta"] }
+      : {}),
+    ...(clientHeaders["openai-beta"] ? { "OpenAI-Beta": clientHeaders["openai-beta"] } : {}),
+  };
+
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      "HTTP-Referer": "https://replit.com",
-      "X-Title": "AI Gateway",
-    },
+    headers: outboundHeaders,
     body: JSON.stringify(body),
   });
 
