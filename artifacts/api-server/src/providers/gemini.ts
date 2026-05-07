@@ -184,6 +184,7 @@ function getGeminiModelName(model: string): string {
 
 export async function callGemini(
   request: ChatCompletionRequest,
+  clientHeaders: Record<string, string> = {},
 ): Promise<ChatCompletionResponse | AsyncIterable<StreamChunk>> {
   const { baseUrl, apiKey } = resolveProviderEndpoint("gemini");
 
@@ -211,6 +212,55 @@ export async function callGemini(
   if (usingIntegration) {
     headers["x-goog-api-key"] = apiKey;
   }
+  if (clientHeaders["x-goog-api-client"]) {
+    headers["x-goog-api-client"] = clientHeaders["x-goog-api-client"];
+  }
+
+  // Pass-through view of additional fields the base type doesn't enumerate.
+  const extra = request as ChatCompletionRequest & {
+    top_k?: number;
+    stop?: string | string[];
+    stop_sequences?: string[];
+    presence_penalty?: number;
+    frequency_penalty?: number;
+    seed?: number;
+    n?: number;
+    response_format?: {
+      type?: string;
+      json_schema?: { schema?: Record<string, unknown> };
+    };
+    safety_settings?: unknown;
+    safetySettings?: unknown;
+  };
+
+  // Accept either OpenAI-style `stop` or Gemini-style `stop_sequences`,
+  // merging both sources with dedup.
+  const stopParts: string[] = [];
+  if (Array.isArray(extra.stop_sequences)) {
+    stopParts.push(...extra.stop_sequences.filter((s): s is string => typeof s === "string"));
+  }
+  if (typeof extra.stop === "string") {
+    stopParts.push(extra.stop);
+  } else if (Array.isArray(extra.stop)) {
+    stopParts.push(...extra.stop.filter((s): s is string => typeof s === "string"));
+  }
+  const stopSequences = stopParts.length > 0 ? Array.from(new Set(stopParts)) : undefined;
+
+  // Map OpenAI-style response_format → Gemini responseMimeType / responseSchema.
+  let responseFormat: { responseMimeType: string; responseSchema?: Record<string, unknown> } | undefined;
+  if (extra.response_format && typeof extra.response_format === "object") {
+    if (extra.response_format.type === "json_object") {
+      responseFormat = { responseMimeType: "application/json" };
+    } else if (
+      extra.response_format.type === "json_schema" &&
+      extra.response_format.json_schema?.schema
+    ) {
+      responseFormat = {
+        responseMimeType: "application/json",
+        responseSchema: extra.response_format.json_schema.schema,
+      };
+    }
+  }
 
   const body: Record<string, unknown> = {
     contents,
@@ -219,10 +269,23 @@ export async function callGemini(
       ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
       ...(request.max_tokens !== undefined ? { maxOutputTokens: request.max_tokens } : {}),
       ...(request.top_p !== undefined ? { topP: request.top_p } : {}),
+      ...(extra.top_k !== undefined ? { topK: extra.top_k } : {}),
+      ...(stopSequences ? { stopSequences } : {}),
+      ...(extra.presence_penalty !== undefined ? { presencePenalty: extra.presence_penalty } : {}),
+      ...(extra.frequency_penalty !== undefined ? { frequencyPenalty: extra.frequency_penalty } : {}),
+      ...(extra.seed !== undefined ? { seed: extra.seed } : {}),
+      ...(extra.n !== undefined ? { candidateCount: extra.n } : {}),
+      ...(responseFormat ? responseFormat : {}),
       // Enable extended thinking for thinking variants (-1 = dynamic budget)
       ...(thinkingEnabled ? { thinkingConfig: { thinkingBudget: -1 } } : {}),
     },
   };
+
+  // Forward Gemini-native safety settings if the caller provides them.
+  const safety = extra.safetySettings ?? extra.safety_settings;
+  if (Array.isArray(safety) && safety.length > 0) {
+    body["safetySettings"] = safety;
+  }
 
   if (request.tools && request.tools.length > 0) {
     body["tools"] = convertToolsToGemini(request.tools);
