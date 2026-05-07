@@ -16,11 +16,20 @@ export interface PoolEntry {
   apiKey: string;
 }
 
+export type UpstreamNodeType = "replit-app" | "replit-dev";
+
+export interface DisabledUpstreamNode {
+  url: string;
+  type: UpstreamNodeType;
+  disabledReason: "requires-wakeup";
+}
+
 export interface ServerSettings {
   sillyTavernMode: boolean;
   reverseProxyEnabled: boolean;
   reverseProxyMode: ReverseProxyMode;
   reverseProxyPool: PoolEntry[];
+  disabledUpstreamNodes: DisabledUpstreamNode[];
   providerOverrides: ProviderOverrides;
 }
 
@@ -38,6 +47,7 @@ const DEFAULTS: ServerSettings = {
   reverseProxyEnabled: false,
   reverseProxyMode: "sticky",
   reverseProxyPool: [],
+  disabledUpstreamNodes: [],
   providerOverrides: EMPTY_OVERRIDES,
 };
 
@@ -88,6 +98,23 @@ function normalizeMode(raw: unknown): ReverseProxyMode {
   return raw === "round-robin" ? "round-robin" : "sticky";
 }
 
+function normalizeDisabledNodes(raw: unknown): DisabledUpstreamNode[] {
+  if (!Array.isArray(raw)) return [];
+  const out: DisabledUpstreamNode[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const v = item as Record<string, unknown>;
+    const url = typeof v["url"] === "string" ? v["url"].trim().replace(/\/+$/, "") : "";
+    const type = v["type"];
+    if (!url || (type !== "replit-app" && type !== "replit-dev")) continue;
+    if (seen.has(url)) continue;
+    seen.add(url);
+    out.push({ url, type, disabledReason: "requires-wakeup" });
+  }
+  return out;
+}
+
 export function getSettings(): ServerSettings {
   if (_settings === null) {
     const loaded = readJson<Record<string, unknown>>("server_settings.json", {});
@@ -121,6 +148,7 @@ export function getSettings(): ServerSettings {
       reverseProxyEnabled: typeof loaded["reverseProxyEnabled"] === "boolean" ? loaded["reverseProxyEnabled"] : DEFAULTS.reverseProxyEnabled,
       reverseProxyMode: normalizeMode(loaded["reverseProxyMode"]),
       reverseProxyPool: pool,
+      disabledUpstreamNodes: normalizeDisabledNodes(loaded["disabledUpstreamNodes"]),
       providerOverrides: normalizeOverrides(loaded["providerOverrides"]),
     };
   }
