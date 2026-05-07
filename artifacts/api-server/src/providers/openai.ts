@@ -30,6 +30,7 @@ function parseThinkingLevel(model: string): { baseModel: string; reasoningEffort
 
 export async function callOpenAI(
   request: ChatCompletionRequest,
+  clientHeaders: Record<string, string> = {},
 ): Promise<ChatCompletionResponse | AsyncIterable<StreamChunk>> {
   const { baseUrl, apiKey } = resolveProviderEndpoint("openai");
 
@@ -82,12 +83,21 @@ export async function callOpenAI(
   };
   const body = JSON.stringify(resolvedRequest);
 
+  const outboundHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+    ...(clientHeaders["openai-beta"] ? { "OpenAI-Beta": clientHeaders["openai-beta"] } : {}),
+    ...(clientHeaders["openai-organization"]
+      ? { "OpenAI-Organization": clientHeaders["openai-organization"] }
+      : {}),
+    ...(clientHeaders["openai-project"]
+      ? { "OpenAI-Project": clientHeaders["openai-project"] }
+      : {}),
+  };
+
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers: outboundHeaders,
     body,
   });
 
