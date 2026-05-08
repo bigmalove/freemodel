@@ -31,12 +31,23 @@ export interface PublicPoolEntry {
   apiKeySet: boolean;
 }
 
+export interface DisabledUpstreamNode {
+  url: string;
+  type: string;
+  disabledReason: string;
+  disabledAt?: string;
+  lastError?: string;
+  upstreamReason?: string;
+  upstreamStatus?: number;
+}
+
 export interface Settings {
   sillyTavernMode: boolean;
   reverseProxyEnabled: boolean;
   reverseProxyMode: ReverseProxyMode;
   reverseProxyPool: PublicPoolEntry[];
   providerOverrides: Record<ProviderName, PublicProviderOverride>;
+  disabledUpstreamNodes: DisabledUpstreamNode[];
 }
 
 export interface ProviderOverridePatch {
@@ -73,8 +84,16 @@ export interface ModelsResponse {
   data: ModelEntry[];
 }
 
+function safeLocalStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 function getApiKey(): string {
-  return localStorage.getItem("gateway_api_key") ?? "";
+  return safeLocalStorage()?.getItem("gateway_api_key") ?? "";
 }
 
 function authHeaders(): HeadersInit {
@@ -126,6 +145,15 @@ export async function patchProviderModels(provider: string, all_disabled: boolea
     method: "PATCH",
     headers: authHeaders(),
     body: JSON.stringify({ provider, all_disabled }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function reEnableUpstreamNode(url: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/upstream-nodes/re-enable`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ url }),
   });
   if (!res.ok) throw new Error(await res.text());
 }
