@@ -1,4 +1,4 @@
-import { readJson, writeJson } from "./persist.js";
+import { readJsonAsync, writeJson } from "./persist.js";
 
 export type ProviderName = "openai" | "anthropic" | "gemini" | "openrouter";
 
@@ -131,42 +131,42 @@ function normalizeDisabledNodes(raw: unknown): DisabledUpstreamNode[] {
   return out;
 }
 
-export function getSettings(): ServerSettings {
-  if (_settings === null) {
-    const loaded = readJson<Record<string, unknown>>("server_settings.json", {});
-    let pool = normalizePool(loaded["reverseProxyPool"]);
-    const legacyKey = typeof loaded["reverseProxyApiKey"] === "string" ? (loaded["reverseProxyApiKey"] as string) : "";
-    // Legacy migration: if no pool but old scalar URL exists, seed it.
-    if (pool.length === 0 && typeof loaded["reverseProxyUrl"] === "string") {
-      const legacyUrl = (loaded["reverseProxyUrl"] as string).trim().replace(/\/+$/, "");
-      if (legacyUrl) {
-        pool = [{ url: legacyUrl, apiKey: legacyKey }];
-      }
+export async function initSettings(): Promise<void> {
+  const loaded = await readJsonAsync<Record<string, unknown>>("server_settings.json", {});
+  let pool = normalizePool(loaded["reverseProxyPool"]);
+  const legacyKey = typeof loaded["reverseProxyApiKey"] === "string" ? (loaded["reverseProxyApiKey"] as string) : "";
+  if (pool.length === 0 && typeof loaded["reverseProxyUrl"] === "string") {
+    const legacyUrl = (loaded["reverseProxyUrl"] as string).trim().replace(/\/+$/, "");
+    if (legacyUrl) {
+      pool = [{ url: legacyUrl, apiKey: legacyKey }];
     }
-    // Legacy edge case: pool empty but a legacy key exists alongside an
-    // override-only configuration. Apply the legacy key to *every* override
-    // that has a URL but no key, preserving the prior global-fallback behaviour.
-    if (pool.length === 0 && legacyKey) {
-      const overridesRaw = loaded["providerOverrides"];
-      if (overridesRaw && typeof overridesRaw === "object") {
-        const o = overridesRaw as Record<string, unknown>;
-        for (const p of ["openai", "anthropic", "gemini", "openrouter"] as const) {
-          const entry = o[p] as { url?: string; apiKey?: string } | undefined;
-          if (entry && typeof entry.url === "string" && entry.url && (!entry.apiKey || entry.apiKey === "")) {
-            entry.apiKey = legacyKey;
-          }
+  }
+  if (pool.length === 0 && legacyKey) {
+    const overridesRaw = loaded["providerOverrides"];
+    if (overridesRaw && typeof overridesRaw === "object") {
+      const o = overridesRaw as Record<string, unknown>;
+      for (const p of ["openai", "anthropic", "gemini", "openrouter"] as const) {
+        const entry = o[p] as { url?: string; apiKey?: string } | undefined;
+        if (entry && typeof entry.url === "string" && entry.url && (!entry.apiKey || entry.apiKey === "")) {
+          entry.apiKey = legacyKey;
         }
       }
     }
-    _settings = {
-      ...DEFAULTS,
-      sillyTavernMode: typeof loaded["sillyTavernMode"] === "boolean" ? loaded["sillyTavernMode"] : DEFAULTS.sillyTavernMode,
-      reverseProxyEnabled: typeof loaded["reverseProxyEnabled"] === "boolean" ? loaded["reverseProxyEnabled"] : DEFAULTS.reverseProxyEnabled,
-      reverseProxyMode: normalizeMode(loaded["reverseProxyMode"]),
-      reverseProxyPool: pool,
-      disabledUpstreamNodes: normalizeDisabledNodes(loaded["disabledUpstreamNodes"]),
-      providerOverrides: normalizeOverrides(loaded["providerOverrides"]),
-    };
+  }
+  _settings = {
+    ...DEFAULTS,
+    sillyTavernMode: typeof loaded["sillyTavernMode"] === "boolean" ? loaded["sillyTavernMode"] : DEFAULTS.sillyTavernMode,
+    reverseProxyEnabled: typeof loaded["reverseProxyEnabled"] === "boolean" ? loaded["reverseProxyEnabled"] : DEFAULTS.reverseProxyEnabled,
+    reverseProxyMode: normalizeMode(loaded["reverseProxyMode"]),
+    reverseProxyPool: pool,
+    disabledUpstreamNodes: normalizeDisabledNodes(loaded["disabledUpstreamNodes"]),
+    providerOverrides: normalizeOverrides(loaded["providerOverrides"]),
+  };
+}
+
+export function getSettings(): ServerSettings {
+  if (_settings === null) {
+    _settings = { ...DEFAULTS };
   }
   return _settings;
 }
