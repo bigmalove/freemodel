@@ -11,6 +11,7 @@ export interface ProviderEndpoint {
   source: ProviderEndpointSource;
   upstreamIndex?: number; // 0-based pool index when source === "upstream"
   poolSize?: number;
+  nodeUrl?: string; // raw pool entry URL (no /modelfarm suffix), set when source === "upstream"
 }
 
 const ENV_BY_PROVIDER: Record<ProviderName, { baseUrl: string; apiKey: string }> = {
@@ -93,6 +94,7 @@ export function resolveProviderEndpoint(provider: ProviderName): ProviderEndpoin
         source: "upstream",
         upstreamIndex: idx,
         poolSize,
+        nodeUrl: entry.url,
       };
     }
   }
