@@ -18,10 +18,17 @@ export interface PoolEntry {
 
 export type UpstreamNodeType = "replit-app" | "replit-dev";
 
+export type DisabledReason = "requires-wakeup" | "upstream-node-unavailable";
+
 export interface DisabledUpstreamNode {
   url: string;
   type: UpstreamNodeType;
-  disabledReason: "requires-wakeup";
+  disabledReason: DisabledReason;
+  provider?: string;
+  upstreamReason?: string;
+  upstreamStatus?: number;
+  disabledAt?: string;
+  lastError?: string;
 }
 
 export interface ServerSettings {
@@ -110,7 +117,16 @@ function normalizeDisabledNodes(raw: unknown): DisabledUpstreamNode[] {
     if (!url || (type !== "replit-app" && type !== "replit-dev")) continue;
     if (seen.has(url)) continue;
     seen.add(url);
-    out.push({ url, type, disabledReason: "requires-wakeup" });
+    const reason = v["disabledReason"];
+    const disabledReason: DisabledReason =
+      reason === "upstream-node-unavailable" ? "upstream-node-unavailable" : "requires-wakeup";
+    const entry: DisabledUpstreamNode = { url, type, disabledReason };
+    if (typeof v["provider"] === "string") entry.provider = v["provider"];
+    if (typeof v["upstreamReason"] === "string") entry.upstreamReason = v["upstreamReason"];
+    if (typeof v["upstreamStatus"] === "number") entry.upstreamStatus = v["upstreamStatus"];
+    if (typeof v["disabledAt"] === "string") entry.disabledAt = v["disabledAt"];
+    if (typeof v["lastError"] === "string") entry.lastError = v["lastError"];
+    out.push(entry);
   }
   return out;
 }
@@ -153,6 +169,64 @@ export function getSettings(): ServerSettings {
     };
   }
   return _settings;
+}
+
+/**
+ * Disable an upstream node. Removes it from the pool, records it in
+ * disabledUpstreamNodes, and disables the proxy entirely if the pool empties.
+ * Does NOT touch reverseProxyMode or providerOverrides.
+ */
+export function disableUpstreamNode(args: {
+  url: string;
+  disabledReason: DisabledReason;
+  provider?: string;
+  upstreamReason?: string;
+  upstreamStatus?: number;
+  lastError?: string;
+}): void {
+  const settings = getSettings();
+  const url = args.url.trim().replace(/\/+$/, "");
+
+  // Determine node type from URL
+  let type: UpstreamNodeType = "replit-app";
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname.endsWith(".replit.dev")) type = "replit-dev";
+  } catch {
+    // default to replit-app
+  }
+
+  // Remove from active pool
+  const newPool = settings.reverseProxyPool.filter((e) => e.url !== url);
+
+  // Build disabled entry
+  const entry: DisabledUpstreamNode = {
+    url,
+    type,
+    disabledReason: args.disabledReason,
+    disabledAt: new Date().toISOString(),
+  };
+  if (args.provider !== undefined) entry.provider = args.provider;
+  if (args.upstreamReason !== undefined) entry.upstreamReason = args.upstreamReason;
+  if (args.upstreamStatus !== undefined) entry.upstreamStatus = args.upstreamStatus;
+  if (args.lastError !== undefined) entry.lastError = args.lastError;
+
+  // Replace or append in disabled list
+  const newDisabled = settings.disabledUpstreamNodes.filter((e) => e.url !== url);
+  newDisabled.push(entry);
+
+  const patch: Partial<ServerSettings> = {
+    reverseProxyPool: newPool,
+    disabledUpstreamNodes: newDisabled,
+  };
+
+  // If pool is now empty, disable the proxy (do not touch mode or overrides)
+  if (newPool.length === 0) {
+    patch.reverseProxyEnabled = false;
+  }
+
+  updateSettings(patch);
 }
 
 export function updateSettings(patch: Partial<ServerSettings>): ServerSettings {
