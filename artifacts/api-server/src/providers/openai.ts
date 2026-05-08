@@ -1,5 +1,6 @@
 import type { ChatCompletionRequest, ChatCompletionResponse, StreamChunk } from "../types.js";
 import { resolveProviderEndpoint } from "../lib/providerEndpoint.js";
+import { maybeDisableSelectedNode } from "../lib/upstreamNodeFailure.js";
 
 // Models that behave like reasoning models (use max_completion_tokens, no temperature/top_p)
 const REASONING_MODELS = new Set(["gpt-5.5"]);
@@ -32,7 +33,8 @@ export async function callOpenAI(
   request: ChatCompletionRequest,
   clientHeaders: Record<string, string> = {},
 ): Promise<ChatCompletionResponse | AsyncIterable<StreamChunk>> {
-  const { baseUrl, apiKey } = resolveProviderEndpoint("openai");
+  const endpoint = resolveProviderEndpoint("openai");
+  const { baseUrl, apiKey } = endpoint;
 
   // Replit integration proxy doesn't include /v1 in path
   const url = `${baseUrl}/chat/completions`;
@@ -103,6 +105,7 @@ export async function callOpenAI(
 
   if (!response.ok) {
     const text = await response.text();
+    maybeDisableSelectedNode({ endpoint, responseStatus: response.status, responseBody: text });
     throw new Error(`OpenAI error ${response.status}: ${text}`);
   }
 
