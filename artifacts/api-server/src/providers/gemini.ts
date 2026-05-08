@@ -1,4 +1,5 @@
 import { resolveProviderEndpoint } from "../lib/providerEndpoint.js";
+import { maybeDisableSelectedNode } from "../lib/upstreamNodeFailure.js";
 import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -186,7 +187,8 @@ export async function callGemini(
   request: ChatCompletionRequest,
   clientHeaders: Record<string, string> = {},
 ): Promise<ChatCompletionResponse | AsyncIterable<StreamChunk>> {
-  const { baseUrl, apiKey } = resolveProviderEndpoint("gemini");
+  const endpoint = resolveProviderEndpoint("gemini");
+  const { baseUrl, apiKey } = endpoint;
 
   const usingIntegration = true;
 
@@ -299,6 +301,7 @@ export async function callGemini(
 
   if (!response.ok) {
     const text = await response.text();
+    maybeDisableSelectedNode({ endpoint, responseStatus: response.status, responseBody: text });
     throw new Error(`Gemini error ${response.status}: ${text}`);
   }
 
