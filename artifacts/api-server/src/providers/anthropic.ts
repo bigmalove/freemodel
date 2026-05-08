@@ -1,5 +1,6 @@
 import { logger } from "../lib/logger.js";
 import { resolveProviderEndpoint } from "../lib/providerEndpoint.js";
+import { maybeDisableSelectedNode } from "../lib/upstreamNodeFailure.js";
 import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -178,7 +179,8 @@ export async function callAnthropic(
   request: ChatCompletionRequest,
   clientHeaders: Record<string, string> = {},
 ): Promise<ChatCompletionResponse | AsyncIterable<StreamChunk>> {
-  const { baseUrl, apiKey } = resolveProviderEndpoint("anthropic");
+  const endpoint = resolveProviderEndpoint("anthropic");
+  const { baseUrl, apiKey } = endpoint;
 
   // Resolve thinking variants and optional effort-level suffix
   const EFFORT_LEVELS = ["max", "xhigh", "high", "medium", "low"] as const;
@@ -335,6 +337,7 @@ export async function callAnthropic(
 
   if (!response.ok) {
     const text = await response.text();
+    maybeDisableSelectedNode({ endpoint, responseStatus: response.status, responseBody: text });
     throw new Error(`Anthropic error ${response.status}: ${text}`);
   }
 
