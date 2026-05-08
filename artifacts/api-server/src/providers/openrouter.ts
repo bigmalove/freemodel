@@ -1,5 +1,6 @@
 import type { ChatCompletionRequest, ChatCompletionResponse, StreamChunk } from "../types.js";
 import { resolveProviderEndpoint } from "../lib/providerEndpoint.js";
+import { maybeDisableSelectedNode } from "../lib/upstreamNodeFailure.js";
 
 // Map Bedrock/* shorthand IDs to real OpenRouter model IDs
 const BEDROCK_MODEL_MAP: Record<string, string> = {
@@ -27,7 +28,8 @@ export async function callOpenRouter(
   request: ChatCompletionRequest,
   clientHeaders: Record<string, string> = {},
 ): Promise<ChatCompletionResponse | AsyncIterable<StreamChunk>> {
-  const { baseUrl, apiKey } = resolveProviderEndpoint("openrouter");
+  const endpoint = resolveProviderEndpoint("openrouter");
+  const { baseUrl, apiKey } = endpoint;
 
   // Replit integration proxy doesn't include /v1 in path
   const url = `${baseUrl}/chat/completions`;
@@ -186,6 +188,7 @@ export async function callOpenRouter(
 
   if (!response.ok) {
     const text = await response.text();
+    maybeDisableSelectedNode({ endpoint, responseStatus: response.status, responseBody: text });
     throw new Error(`OpenRouter error ${response.status}: ${text}`);
   }
 
