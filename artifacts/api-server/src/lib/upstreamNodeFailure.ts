@@ -59,6 +59,66 @@ export function maybeDisableSelectedNode(args: {
   if (endpoint.source !== "upstream") return;
   if (!endpoint.nodeUrl) return;
 
+  // Replit hosting shutdown page: the upstream node ran out of credits or was
+  // taken offline. The response is an HTML page containing a Replit hosting link.
+  // This can arrive on any 2xx/4xx/5xx status, so check body first.
+  if (responseBody.includes("replit.com/site/hosting")) {
+    logger.warn(
+      {
+        nodeUrl: endpoint.nodeUrl,
+        upstreamStatus: responseStatus,
+        message: "Replit hosting shutdown page detected",
+      },
+      "upstream node returned Replit shutdown page — removing node from pool",
+    );
+    disableUpstreamNode({
+      url: endpoint.nodeUrl,
+      disabledReason: "upstream-node-unavailable",
+      upstreamReason: "replit-hosting-shutdown",
+      upstreamStatus: responseStatus,
+      lastError: "Replit hosting shutdown page returned (node likely out of credits)",
+    });
+    return;
+  }
+
+  // A raw 403 from the upstream reverse proxy means access is forbidden.
+  // Try to extract a specific error code from the JSON body (e.g.
+  // FREE_TIER_BUDGET_EXCEEDED); fall back to generic "forbidden".
+  if (responseStatus === 403) {
+    let upstreamReason = "forbidden";
+    let lastError = responseBody.slice(0, 300);
+    try {
+      const parsed = JSON.parse(responseBody) as {
+        error?: { code?: unknown; message?: unknown };
+      };
+      if (typeof parsed.error?.code === "string" && parsed.error.code) {
+        upstreamReason = parsed.error.code;
+      }
+      if (typeof parsed.error?.message === "string" && parsed.error.message) {
+        lastError = parsed.error.message.slice(0, 300);
+      }
+    } catch {
+      // body is not JSON — keep defaults
+    }
+    logger.warn(
+      {
+        nodeUrl: endpoint.nodeUrl,
+        upstreamStatus: 403,
+        upstreamReason,
+        message: lastError,
+      },
+      "upstream node returned 403 Forbidden — removing node from pool",
+    );
+    disableUpstreamNode({
+      url: endpoint.nodeUrl,
+      disabledReason: "upstream-node-unavailable",
+      upstreamReason,
+      upstreamStatus: 403,
+      lastError,
+    });
+    return;
+  }
+
   const signal = parseNodeDisableSignal(responseStatus, responseBody);
   if (!signal) return;
 
