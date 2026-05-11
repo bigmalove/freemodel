@@ -109,6 +109,10 @@ export default function ConfigPage() {
   const [reEnablingUrl, setReEnablingUrl] = useState<string | null>(null);
   const [reEnableErr, setReEnableErr] = useState<string>("");
 
+  // Collapsible state for pool entries and disabled nodes.
+  const [poolExpanded, setPoolExpanded] = useState(false);
+  const [disabledExpanded, setDisabledExpanded] = useState(false);
+
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
 
   function syncFormsFromSettings(cfg: Settings) {
@@ -421,89 +425,107 @@ export default function ConfigPage() {
 
         {/* Pool editor */}
         <div className="space-y-3">
-          {poolDraft.length === 0 && (
-            <div className="rounded-md border border-dashed border-border/60 bg-secondary/10 p-3 text-xs text-muted-foreground">
-              尚未添加任何上游 URL,请点击"添加上游"新增一条。
-            </div>
-          )}
-          {poolDraft.map((entry, i) => (
-            <div key={i} className="rounded-md border border-border/60 bg-secondary/10 p-3 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-medium text-foreground">
-                  上游 #{i + 1}
-                  {i === 0 && <span className="ml-1 text-[10px] text-muted-foreground">(固定模式使用此条)</span>}
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    disabled={i === 0}
-                    onClick={() => movePoolRow(i, -1)}
-                    className="rounded border border-border bg-secondary/30 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-secondary/60 disabled:opacity-30"
-                    title="上移"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    disabled={i === poolDraft.length - 1}
-                    onClick={() => movePoolRow(i, 1)}
-                    className="rounded border border-border bg-secondary/30 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-secondary/60 disabled:opacity-30"
-                    title="下移"
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removePoolRow(i)}
-                    className="rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[10px] text-destructive hover:bg-destructive/20"
-                    title="删除"
-                  >
-                    ✕
-                  </button>
+          {/* Collapsible header for pool entries */}
+          <button
+            type="button"
+            onClick={() => setPoolExpanded((v) => !v)}
+            className="w-full flex items-center justify-between rounded-md border border-border/60 bg-secondary/10 px-3 py-2 text-xs text-foreground hover:bg-secondary/20 transition-colors"
+          >
+            <span className="font-medium">
+              {poolDraft.length === 0
+                ? "暂无上游节点"
+                : `${poolDraft.length} 条上游节点`}
+            </span>
+            <span className="text-muted-foreground">{poolExpanded ? "▲ 收起" : "▼ 展开"}</span>
+          </button>
+
+          {poolExpanded && (
+            <>
+              {poolDraft.length === 0 && (
+                <div className="rounded-md border border-dashed border-border/60 bg-secondary/10 p-3 text-xs text-muted-foreground">
+                  尚未添加任何上游 URL,请点击"添加上游"新增一条。
                 </div>
-              </div>
-              <input
-                type="text"
-                value={entry.url}
-                onChange={(e) =>
-                  setPoolDraft((prev) =>
-                    prev.map((x, idx) => (idx === i ? { ...x, url: e.target.value } : x)),
-                  )
-                }
-                placeholder="https://your-upstream.replit.dev"
-                className="w-full rounded-md border border-input bg-secondary/30 px-3 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  value={entry.apiKey}
-                  onChange={(e) =>
-                    setPoolDraft((prev) =>
-                      prev.map((x, idx) => (idx === i ? { ...x, apiKey: e.target.value } : x)),
-                    )
-                  }
-                  placeholder={
-                    entry.apiKeyWasSet
-                      ? "•••••••• (已保存 — 留空表示保留)"
-                      : i === 0
-                      ? "(留空 — 不进行认证)"
-                      : "(留空 — 回退到 #1 的密钥)"
-                  }
-                  className="flex-1 rounded-md border border-input bg-secondary/30 px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-                {entry.apiKeyWasSet && (
-                  <button
-                    type="button"
-                    onClick={() => clearPoolRowKey(i)}
-                    className="rounded-md border border-border bg-secondary/30 px-2 py-1 text-[11px] text-muted-foreground hover:bg-secondary/60 transition-colors"
-                  >
-                    清除密钥
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+              )}
+              {poolDraft.map((entry, i) => (
+                <div key={i} className="rounded-md border border-border/60 bg-secondary/10 p-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-foreground">
+                      上游 #{i + 1}
+                      {i === 0 && <span className="ml-1 text-[10px] text-muted-foreground">(固定模式使用此条)</span>}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={i === 0}
+                        onClick={() => movePoolRow(i, -1)}
+                        className="rounded border border-border bg-secondary/30 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-secondary/60 disabled:opacity-30"
+                        title="上移"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        disabled={i === poolDraft.length - 1}
+                        onClick={() => movePoolRow(i, 1)}
+                        className="rounded border border-border bg-secondary/30 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-secondary/60 disabled:opacity-30"
+                        title="下移"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removePoolRow(i)}
+                        className="rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[10px] text-destructive hover:bg-destructive/20"
+                        title="删除"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    value={entry.url}
+                    onChange={(e) =>
+                      setPoolDraft((prev) =>
+                        prev.map((x, idx) => (idx === i ? { ...x, url: e.target.value } : x)),
+                      )
+                    }
+                    placeholder="https://your-upstream.replit.dev"
+                    className="w-full rounded-md border border-input bg-secondary/30 px-3 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={entry.apiKey}
+                      onChange={(e) =>
+                        setPoolDraft((prev) =>
+                          prev.map((x, idx) => (idx === i ? { ...x, apiKey: e.target.value } : x)),
+                        )
+                      }
+                      placeholder={
+                        entry.apiKeyWasSet
+                          ? "•••••••• (已保存 — 留空表示保留)"
+                          : i === 0
+                          ? "(留空 — 不进行认证)"
+                          : "(留空 — 回退到 #1 的密钥)"
+                      }
+                      className="flex-1 rounded-md border border-input bg-secondary/30 px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    {entry.apiKeyWasSet && (
+                      <button
+                        type="button"
+                        onClick={() => clearPoolRowKey(i)}
+                        className="rounded-md border border-border bg-secondary/30 px-2 py-1 text-[11px] text-muted-foreground hover:bg-secondary/60 transition-colors"
+                      >
+                        清除密钥
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
@@ -543,60 +565,78 @@ export default function ConfigPage() {
       {/* Disabled Upstream Nodes */}
       {settings && settings.disabledUpstreamNodes && settings.disabledUpstreamNodes.length > 0 && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-5 space-y-4">
-          <div>
-            <h3 className="text-sm font-semibold text-amber-400">被屏蔽的上游节点</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              以下节点因出错被自动屏蔽。可点击"重新启用"将其恢复至代理池。
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold text-amber-400">被屏蔽的上游节点</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                以下节点因出错被自动屏蔽。可点击"重新启用"将其恢复至代理池。
+              </p>
+            </div>
           </div>
-          <div className="space-y-3">
-            {settings.disabledUpstreamNodes.map((node: DisabledUpstreamNode) => {
-              const isDev = node.type === "replit-dev";
-              const reasonLabel =
-                node.disabledReason === "upstream-node-unavailable"
-                  ? "上游节点不可用"
-                  : node.disabledReason === "requires-wakeup"
-                  ? "需要唤醒 (Dev 节点)"
-                  : node.disabledReason;
-              return (
-                <div
-                  key={node.url}
-                  className="rounded-md border border-amber-500/20 bg-secondary/10 p-3 space-y-1.5"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="font-mono text-xs text-foreground break-all">{node.url}</div>
-                      <div className="flex flex-wrap gap-2 mt-1">
-                        <span className="text-[10px] rounded px-1.5 py-0.5 bg-amber-500/15 text-amber-400">
-                          {reasonLabel}
-                        </span>
-                        {node.disabledAt && (
-                          <span className="text-[10px] text-muted-foreground">
-                            {new Date(node.disabledAt).toLocaleString("zh-CN")}
+
+          {/* Collapsible header for disabled nodes */}
+          <button
+            type="button"
+            onClick={() => setDisabledExpanded((v) => !v)}
+            className="w-full flex items-center justify-between rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-300 hover:bg-amber-500/15 transition-colors"
+          >
+            <span className="font-medium">
+              {settings.disabledUpstreamNodes.length} 个节点被屏蔽
+            </span>
+            <span className="text-amber-400/70">{disabledExpanded ? "▲ 收起" : "▼ 展开"}</span>
+          </button>
+
+          {disabledExpanded && (
+            <div className="space-y-3">
+              {settings.disabledUpstreamNodes.map((node: DisabledUpstreamNode) => {
+                const isDev = node.type === "replit-dev";
+                const reasonLabel =
+                  node.disabledReason === "upstream-node-unavailable"
+                    ? "上游节点不可用"
+                    : node.disabledReason === "requires-wakeup"
+                    ? "需要唤醒 (Dev 节点)"
+                    : node.disabledReason;
+                return (
+                  <div
+                    key={node.url}
+                    className="rounded-md border border-amber-500/20 bg-secondary/10 p-3 space-y-1.5"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-mono text-xs text-foreground break-all">{node.url}</div>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          <span className="text-[10px] rounded px-1.5 py-0.5 bg-amber-500/15 text-amber-400">
+                            {reasonLabel}
                           </span>
+                          {node.disabledAt && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {new Date(node.disabledAt).toLocaleString("zh-CN")}
+                            </span>
+                          )}
+                        </div>
+                        {node.lastError && (
+                          <div className="mt-1 text-[10px] text-muted-foreground truncate">
+                            错误: {node.lastError}
+                          </div>
                         )}
                       </div>
-                      {node.lastError && (
-                        <div className="mt-1 text-[10px] text-muted-foreground truncate">
-                          错误: {node.lastError}
-                        </div>
+                      {!isDev && (
+                        <button
+                          type="button"
+                          disabled={reEnablingUrl === node.url}
+                          onClick={() => handleReEnable(node.url)}
+                          className="shrink-0 rounded-md bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+                        >
+                          {reEnablingUrl === node.url ? "处理中..." : "重新启用"}
+                        </button>
                       )}
                     </div>
-                    {!isDev && (
-                      <button
-                        type="button"
-                        disabled={reEnablingUrl === node.url}
-                        onClick={() => handleReEnable(node.url)}
-                        className="shrink-0 rounded-md bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
-                      >
-                        {reEnablingUrl === node.url ? "处理中..." : "重新启用"}
-                      </button>
-                    )}
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
+
           {reEnableErr && <div className="text-xs text-destructive">{reEnableErr}</div>}
         </div>
       )}
