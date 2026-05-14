@@ -1,9 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   fetchSetupStatus,
   fetchSettings,
   updateSettings,
   reEnableUpstreamNode,
+  verifyKey,
+  setClientKey,
+  getApiKey,
   type SetupStatus,
   type Settings,
   type ProviderName,
@@ -85,11 +88,10 @@ function emptyDrafts(): Record<ProviderName, OverrideDraft> {
 export default function ConfigPage() {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [apiKey, setApiKey] = useState(() => {
-    try { return localStorage.getItem("gateway_api_key") ?? ""; } catch { return ""; }
-  });
+  const [apiKey, setApiKey] = useState(() => getApiKey());
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [keyValid, setKeyValid] = useState<boolean | null>(null);
   const [loadErr, setLoadErr] = useState("");
 
   // Pool editor state.
@@ -112,6 +114,11 @@ export default function ConfigPage() {
   // Collapsible state for pool entries and disabled nodes.
   const [poolExpanded, setPoolExpanded] = useState(false);
   const [disabledExpanded, setDisabledExpanded] = useState(false);
+
+  // Import/export state
+  const [importErr, setImportErr] = useState("");
+  const [importOk, setImportOk] = useState(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
 
@@ -140,10 +147,15 @@ export default function ConfigPage() {
   }, []);
 
   async function refreshAll() {
-    const [s, cfg] = await Promise.all([fetchSetupStatus(), fetchSettings()]);
+    const s = await fetchSetupStatus();
     setStatus(s);
-    setSettings(cfg);
-    syncFormsFromSettings(cfg);
+    try {
+      const cfg = await fetchSettings();
+      setSettings(cfg);
+      syncFormsFromSettings(cfg);
+    } catch {
+      // 401 means key is wrong or not yet entered — silently ignore
+    }
   }
 
   async function toggleReverseProxy() {
@@ -270,20 +282,95 @@ export default function ConfigPage() {
   }
 
   async function saveApiKey() {
-    try {
-      if (apiKey.trim()) {
-        localStorage.setItem("gateway_api_key", apiKey.trim());
-      } else {
-        localStorage.removeItem("gateway_api_key");
-      }
-    } catch { }
+    setClientKey(apiKey);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+    try {
+      const result = await verifyKey();
+      setKeyValid(result.valid);
+    } catch {
+      setKeyValid(false);
+    }
     try {
       await refreshAll();
     } catch (e) {
       setLoadErr(String(e));
     }
+  }
+
+  function exportPool() {
+    const data = {
+      version: 1,
+      reverseProxyMode: poolMode,
+      reverseProxyPool: poolDraft.map((e) => ({
+        url: e.url,
+        // API keys are intentionally omitted for security
+      })),
+      disabledUpstreamNodes: (settings?.disabledUpstreamNodes ?? []).map((n) => ({
+        url: n.url,
+        type: n.type,
+        disabledReason: n.disabledReason,
+        disabledAt: n.disabledAt,
+        lastError: n.lastError,
+        upstreamReason: n.upstreamReason,
+        upstreamStatus: n.upstreamStatus,
+      })),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "upstream-pool.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importPool(e: React.ChangeEvent<HTMLInputElement>) {
+    setImportErr("");
+    setImportOk(false);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const raw = JSON.parse(reader.result as string);
+        if (!Array.isArray(raw.reverseProxyPool)) {
+          throw new Error("JSON 格式错误：缺少 reverseProxyPool 数组");
+        }
+        const entries: PoolDraftEntry[] = [];
+        for (let i = 0; i < raw.reverseProxyPool.length; i++) {
+          const item = raw.reverseProxyPool[i];
+          if (typeof item.url !== "string" || !item.url.trim()) {
+            throw new Error(`第 ${i + 1} 条记录缺少有效的 url 字段`);
+          }
+          entries.push({ url: item.url.trim(), apiKey: "", apiKeyWasSet: false });
+        }
+        if (raw.reverseProxyMode === "round-robin" || raw.reverseProxyMode === "sticky") {
+          setPoolMode(raw.reverseProxyMode);
+        }
+        // Also add disabled nodes into the draft (user can review and save to restore them)
+        if (Array.isArray(raw.disabledUpstreamNodes)) {
+          for (const n of raw.disabledUpstreamNodes) {
+            if (typeof n.url === "string" && n.url.trim()) {
+              const alreadyPresent = entries.some((e) => e.url === n.url.trim());
+              if (!alreadyPresent) {
+                entries.push({ url: n.url.trim(), apiKey: "", apiKeyWasSet: false });
+              }
+            }
+          }
+        }
+
+        setPoolDraft(entries);
+        setPoolExpanded(true);
+        setImportOk(true);
+        setTimeout(() => setImportOk(false), 3000);
+      } catch (err) {
+        setImportErr(String(err));
+      } finally {
+        if (importFileRef.current) importFileRef.current.value = "";
+      }
+    };
+    reader.readAsText(file);
   }
 
   async function handleReEnable(url: string) {
@@ -344,7 +431,7 @@ export default function ConfigPage() {
           <input
             type="password"
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            onChange={(e) => { setApiKey(e.target.value); setKeyValid(null); }}
             placeholder="sk-..."
             className="flex-1 rounded-md border border-input bg-secondary/30 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
@@ -355,6 +442,12 @@ export default function ConfigPage() {
             {saved ? "已保存!" : "保存"}
           </button>
         </div>
+        {keyValid === true && (
+          <p className="text-xs text-green-400">✓ 密钥正确，认证成功</p>
+        )}
+        {keyValid === false && (
+          <p className="text-xs text-destructive">✗ 密钥不匹配，请检查后重试</p>
+        )}
       </div>
 
       {/* Gateway Auth Status */}
@@ -528,7 +621,7 @@ export default function ConfigPage() {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={addPoolRow}
@@ -543,6 +636,28 @@ export default function ConfigPage() {
           >
             {rpSaved ? "已保存!" : rpSaving ? "保存中..." : "保存代理池"}
           </button>
+
+          {/* Export */}
+          <button
+            type="button"
+            onClick={exportPool}
+            className="rounded-md border border-border bg-secondary/30 px-3 py-1.5 text-xs text-foreground hover:bg-secondary/60 transition-colors"
+          >
+            ↓ 导出 JSON
+          </button>
+
+          {/* Import */}
+          <label className="rounded-md border border-border bg-secondary/30 px-3 py-1.5 text-xs text-foreground hover:bg-secondary/60 transition-colors cursor-pointer">
+            ↑ 导入 JSON
+            <input
+              ref={importFileRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={importPool}
+            />
+          </label>
+
           {settings?.reverseProxyEnabled && status?.reverseProxy && (
             <span className="text-xs text-green-400">
               已启用 — {status.pool?.size ?? 0} 条 URL,{status.pool?.mode === "round-robin" ? "轮询" : "固定"}模式
@@ -555,8 +670,16 @@ export default function ConfigPage() {
             <span className="text-xs text-muted-foreground">已禁用 — 使用本地环境密钥</span>
           )}
         </div>
+
+        {importOk && (
+          <p className="text-xs text-green-400">✓ 导入成功（含屏蔽节点已并入草稿），请检查后点击"保存代理池"</p>
+        )}
+        {importErr && (
+          <p className="text-xs text-destructive">导入失败：{importErr}</p>
+        )}
+
         <p className="text-xs text-muted-foreground mt-2">
-          提示:若 URL 不变且密钥栏留空,则保留该行原有密钥;若修改了 URL,则会清除其原有密钥,需要为新 URL 重新输入密钥。
+          提示:若 URL 不变且密钥栏留空,则保留该行原有密钥;若修改了 URL,则会清除其原有密钥,需要为新 URL 重新输入密钥。导出的 JSON 不含密钥，导入后需重新填写。
         </p>
 
         {rpErr && <div className="text-xs text-destructive">{rpErr}</div>}
