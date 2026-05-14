@@ -92,13 +92,69 @@ function safeLocalStorage() {
   }
 }
 
-function getApiKey(): string {
-  return safeLocalStorage()?.getItem("gateway_api_key") ?? "";
+// In-memory store (primary) — works even when localStorage/cookies are blocked by iframe sandbox
+let _inMemoryKey = "";
+
+function getCookie(name: string): string {
+  try {
+    const match = document.cookie.split("; ").find((row) => row.startsWith(name + "="));
+    return match ? decodeURIComponent(match.split("=")[1]!) : "";
+  } catch {
+    return "";
+  }
+}
+
+function setCookie(name: string, value: string, days: number): void {
+  try {
+    const expires = new Date(Date.now() + days * 864e5).toUTCString();
+    document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Strict`;
+  } catch {
+    // cookie access blocked — in-memory key is still set
+  }
+}
+
+function deleteCookie(name: string): void {
+  try {
+    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Strict`;
+  } catch {}
+}
+
+export function setClientKey(key: string): void {
+  _inMemoryKey = key.trim();
+  if (_inMemoryKey) {
+    setCookie("gateway_api_key", _inMemoryKey, 7);
+    try { window.localStorage.setItem("gateway_api_key", _inMemoryKey); } catch {}
+  } else {
+    deleteCookie("gateway_api_key");
+    try { window.localStorage.removeItem("gateway_api_key"); } catch {}
+  }
+}
+
+export function getApiKey(): string {
+  if (_inMemoryKey) return _inMemoryKey;
+  // Try cookie first (works in more iframe contexts than localStorage)
+  const fromCookie = getCookie("gateway_api_key");
+  if (fromCookie) {
+    _inMemoryKey = fromCookie;
+    return _inMemoryKey;
+  }
+  const fromStorage = safeLocalStorage()?.getItem("gateway_api_key") ?? "";
+  if (fromStorage) {
+    _inMemoryKey = fromStorage;
+    return _inMemoryKey;
+  }
+  return "";
 }
 
 function authHeaders(): HeadersInit {
   const key = getApiKey();
   return key ? { Authorization: `Bearer ${key}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+}
+
+export async function verifyKey(): Promise<{ valid: boolean; keyRequired: boolean }> {
+  const res = await fetch(`${API_BASE}/verify-key`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }
 
 export async function fetchSetupStatus(): Promise<SetupStatus> {
