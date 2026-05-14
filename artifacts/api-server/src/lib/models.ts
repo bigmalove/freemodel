@@ -142,7 +142,9 @@ export const MODEL_REGISTRY: ModelEntry[] = [
   { id: "Bedrock/claude-4.6-opus-thinking-high",         provider: "openrouter", created: 1753142400 },
   { id: "Bedrock/claude-4.6-opus-thinking-xhigh",        provider: "openrouter", created: 1753142400 },
   { id: "Bedrock/claude-4.6-opus-thinking-max",          provider: "openrouter", created: 1753142400 },
+  { id: "~anthropic/claude-opus-latest",                  provider: "openrouter", created: 1747180800 },
   { id: "anthropic/claude-opus-4.7",                     provider: "openrouter", created: 1756684800 },
+  { id: "anthropic/claude-opus-4.7-fast",                provider: "openrouter", created: 1756684800 },
   { id: "anthropic/claude-opus-4.7-thinking",            provider: "openrouter", created: 1756684800 },
   { id: "anthropic/claude-opus-4.7-thinking-low",        provider: "openrouter", created: 1756684800 },
   { id: "anthropic/claude-opus-4.7-thinking-medium",     provider: "openrouter", created: 1756684800 },
@@ -173,6 +175,10 @@ export const MODEL_REGISTRY: ModelEntry[] = [
   { id: "cohere/command-a",                       provider: "openrouter", created: 1741392000 },
   { id: "amazon/nova-premier-v1",            provider: "openrouter", created: 1744934400 },
   { id: "baidu/ernie-4.5-300b-a47b",         provider: "openrouter", created: 1744934400 },
+  { id: "openai/gpt-5.4-image-2",            provider: "openrouter", created: 1751328000 },
+  { id: "bytedance-seed/seedream-4.5",       provider: "openrouter", created: 1747180800 },
+  { id: "bytedance/seedance-2.0",            provider: "openrouter", created: 1747180800 },
+  { id: "kwaivgi/kling-v3.0-pro",            provider: "openrouter", created: 1747180800 },
 ];
 
 const DEFAULT_MODEL = "gpt-4.1-mini";
