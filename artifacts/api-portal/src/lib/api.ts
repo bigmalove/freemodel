@@ -213,3 +213,22 @@ export async function reEnableUpstreamNode(url: string): Promise<void> {
   });
   if (!res.ok) throw new Error(await res.text());
 }
+
+export interface CopyFromResult {
+  poolEntries: Array<{ url: string }>;
+  disabledNodesImported: number;
+}
+
+export async function fetchUpstreamNodesFrom(masterUrl: string, apiKey?: string): Promise<CopyFromResult> {
+  const res = await fetch(`${API_BASE}/upstream-nodes/copy-from`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ url: masterUrl, apiKey: apiKey ?? "" }),
+  });
+  if (!res.ok) {
+    let msg = await res.text();
+    try { msg = JSON.parse(msg)?.error?.message ?? msg; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
