@@ -5,6 +5,7 @@ import {
   updateSettings,
   reEnableUpstreamNode,
   fetchUpstreamNodesFrom,
+  fetchCooldowns,
   verifyKey,
   setClientKey,
   getApiKey,
@@ -112,9 +113,13 @@ export default function ConfigPage() {
   const [reEnablingUrl, setReEnablingUrl] = useState<string | null>(null);
   const [reEnableErr, setReEnableErr] = useState<string>("");
 
+  // Cooldowns state (nodeUrl → remaining ms)
+  const [cooldowns, setCooldowns] = useState<Record<string, number>>({});
+
   // Collapsible state for pool entries and disabled nodes.
   const [poolExpanded, setPoolExpanded] = useState(false);
   const [disabledExpanded, setDisabledExpanded] = useState(false);
+  const [wakeupExpanded, setWakeupExpanded] = useState(false);
 
   // Import/export state
   const [importErr, setImportErr] = useState("");
@@ -152,6 +157,22 @@ export default function ConfigPage() {
       .catch(() => {
         // Likely 401 — admin key not yet entered. Silent; user will save key.
       });
+  }, []);
+
+  // Poll cooldowns every 3 seconds so the countdown stays live.
+  useEffect(() => {
+    let active = true;
+    async function poll() {
+      try {
+        const data = await fetchCooldowns();
+        if (active) setCooldowns(data);
+      } catch {
+        // silent — key may not be set yet
+      }
+    }
+    poll();
+    const id = setInterval(poll, 3000);
+    return () => { active = false; clearInterval(id); };
   }, []);
 
   async function refreshAll() {
@@ -810,56 +831,145 @@ export default function ConfigPage() {
 
           {disabledExpanded && (
             <div className="space-y-3">
-              {settings.disabledUpstreamNodes.map((node: DisabledUpstreamNode) => {
-                const isDev = node.type === "replit-dev";
-                const reasonLabel =
-                  node.disabledReason === "upstream-node-unavailable"
-                    ? "上游节点不可用"
-                    : node.disabledReason === "requires-wakeup"
-                    ? "需要唤醒 (Dev 节点)"
-                    : node.disabledReason;
-                return (
-                  <div
-                    key={node.url}
-                    className="rounded-md border border-amber-500/20 bg-secondary/10 p-3 space-y-1.5"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-mono text-xs text-foreground break-all">{node.url}</div>
-                        <div className="flex flex-wrap gap-2 mt-1">
-                          <span className="text-[10px] rounded px-1.5 py-0.5 bg-amber-500/15 text-amber-400">
-                            {reasonLabel}
-                          </span>
-                          {node.disabledAt && (
-                            <span className="text-[10px] text-muted-foreground">
-                              {new Date(node.disabledAt).toLocaleString("zh-CN")}
+              {/* Regular disabled nodes (non-wakeup) */}
+              {settings.disabledUpstreamNodes
+                .filter((node: DisabledUpstreamNode) => node.disabledReason !== "requires-wakeup")
+                .map((node: DisabledUpstreamNode) => {
+                  const isDev = node.type === "replit-dev";
+                  const reasonLabel =
+                    node.disabledReason === "upstream-node-unavailable"
+                      ? "上游节点不可用"
+                      : node.disabledReason;
+                  return (
+                    <div
+                      key={node.url}
+                      className="rounded-md border border-amber-500/20 bg-secondary/10 p-3 space-y-1.5"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-mono text-xs text-foreground break-all">{node.url}</div>
+                          <div className="flex flex-wrap gap-2 mt-1">
+                            <span className="text-[10px] rounded px-1.5 py-0.5 bg-amber-500/15 text-amber-400">
+                              {reasonLabel}
                             </span>
+                            {node.disabledAt && (
+                              <span className="text-[10px] text-muted-foreground">
+                                {new Date(node.disabledAt).toLocaleString("zh-CN")}
+                              </span>
+                            )}
+                          </div>
+                          {node.lastError && (
+                            <div className="mt-1 text-[10px] text-muted-foreground truncate">
+                              错误: {node.lastError}
+                            </div>
                           )}
                         </div>
-                        {node.lastError && (
-                          <div className="mt-1 text-[10px] text-muted-foreground truncate">
-                            错误: {node.lastError}
-                          </div>
+                        {!isDev && (
+                          <button
+                            type="button"
+                            disabled={reEnablingUrl === node.url}
+                            onClick={() => handleReEnable(node.url)}
+                            className="shrink-0 rounded-md bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+                          >
+                            {reEnablingUrl === node.url ? "处理中..." : "重新启用"}
+                          </button>
                         )}
                       </div>
-                      {!isDev && (
-                        <button
-                          type="button"
-                          disabled={reEnablingUrl === node.url}
-                          onClick={() => handleReEnable(node.url)}
-                          className="shrink-0 rounded-md bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
-                        >
-                          {reEnablingUrl === node.url ? "处理中..." : "重新启用"}
-                        </button>
-                      )}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+
+              {/* Secondary collapsible: wakeup (Dev) nodes */}
+              {settings.disabledUpstreamNodes.some((n: DisabledUpstreamNode) => n.disabledReason === "requires-wakeup") && (
+                <div className="rounded-md border border-blue-500/20 bg-blue-500/5">
+                  <button
+                    type="button"
+                    onClick={() => setWakeupExpanded((v) => !v)}
+                    className="w-full flex items-center justify-between px-3 py-2 text-xs text-blue-300 hover:bg-blue-500/10 transition-colors"
+                  >
+                    <span className="font-medium">
+                      需要唤醒 (Dev 节点) &mdash;{" "}
+                      {settings.disabledUpstreamNodes.filter((n: DisabledUpstreamNode) => n.disabledReason === "requires-wakeup").length} 个
+                    </span>
+                    <span className="text-blue-400/70">{wakeupExpanded ? "▲ 收起" : "▼ 展开"}</span>
+                  </button>
+
+                  {wakeupExpanded && (
+                    <div className="px-3 pb-3 space-y-2">
+                      {settings.disabledUpstreamNodes
+                        .filter((node: DisabledUpstreamNode) => node.disabledReason === "requires-wakeup")
+                        .map((node: DisabledUpstreamNode) => (
+                          <div
+                            key={node.url}
+                            className="rounded-md border border-blue-500/20 bg-secondary/10 p-3 space-y-1.5"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="font-mono text-xs text-foreground break-all">{node.url}</div>
+                                <div className="flex flex-wrap gap-2 mt-1">
+                                  <span className="text-[10px] rounded px-1.5 py-0.5 bg-blue-500/15 text-blue-400">
+                                    需要唤醒
+                                  </span>
+                                  <span className="text-[10px] rounded px-1.5 py-0.5 bg-blue-500/10 text-blue-300/70">
+                                    Dev 节点
+                                  </span>
+                                  {node.disabledAt && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {new Date(node.disabledAt).toLocaleString("zh-CN")}
+                                    </span>
+                                  )}
+                                </div>
+                                {node.lastError && (
+                                  <div className="mt-1 text-[10px] text-muted-foreground truncate">
+                                    错误: {node.lastError}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {reEnableErr && <div className="text-xs text-destructive">{reEnableErr}</div>}
+        </div>
+      )}
+
+      {/* Cooling-down nodes */}
+      {Object.keys(cooldowns).length > 0 && (
+        <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-5 space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-blue-400">限速冷却中的节点</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              以下节点因收到 429 限速响应正在冷却，冷却期间将自动跳过，倒计时结束后恢复参与轮询。
+            </p>
+          </div>
+          <div className="space-y-2">
+            {Object.entries(cooldowns).map(([url, remainingMs]) => {
+              const secs = Math.ceil(remainingMs / 1000);
+              const pct = Math.min(100, (remainingMs / 60000) * 100);
+              return (
+                <div key={url} className="rounded-md border border-blue-500/20 bg-secondary/10 p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-mono text-xs text-foreground break-all min-w-0">{url}</div>
+                    <span className="shrink-0 text-xs font-medium text-blue-300 tabular-nums">
+                      {secs}s
+                    </span>
+                  </div>
+                  <div className="h-1 rounded-full bg-blue-500/15 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-blue-400/60 transition-all duration-1000"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
