@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getSettings, updateSettings, type DisabledUpstreamNode, type UpstreamNodeType } from "../lib/settings.js";
+import { getActiveCooldowns } from "../lib/providerEndpoint.js";
 
 const router = Router();
 
@@ -15,6 +16,11 @@ function classifyHost(url: string): UpstreamNodeType | null {
   if (hostname.endsWith(".replit.dev")) return "replit-dev";
   return null;
 }
+
+router.get("/api/upstream-nodes/cooldowns", (_req, res) => {
+  const cooldowns = getActiveCooldowns();
+  res.json({ cooldowns });
+});
 
 router.post("/api/upstream-nodes/register", (req, res) => {
   const body = (req.body ?? {}) as { url?: unknown };
