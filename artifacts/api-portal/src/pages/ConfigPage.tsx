@@ -4,6 +4,7 @@ import {
   fetchSettings,
   updateSettings,
   reEnableUpstreamNode,
+  fetchUpstreamNodesFrom,
   verifyKey,
   setClientKey,
   getApiKey,
@@ -119,6 +120,13 @@ export default function ConfigPage() {
   const [importErr, setImportErr] = useState("");
   const [importOk, setImportOk] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
+
+  // Copy-from old master node state
+  const [copyFromUrl, setCopyFromUrl] = useState("");
+  const [copyFromKey, setCopyFromKey] = useState("");
+  const [copyFromLoading, setCopyFromLoading] = useState(false);
+  const [copyFromErr, setCopyFromErr] = useState("");
+  const [copyFromOk, setCopyFromOk] = useState<{ added: number; skipped: number } | null>(null);
 
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
 
@@ -383,6 +391,54 @@ export default function ConfigPage() {
       setReEnableErr(String(e));
     } finally {
       setReEnablingUrl(null);
+    }
+  }
+
+  async function copyFromMaster() {
+    setCopyFromErr("");
+    setCopyFromOk(null);
+    const url = copyFromUrl.trim().replace(/\/+$/, "");
+    if (!url) {
+      setCopyFromErr("请输入旧主节点的地址");
+      return;
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      setCopyFromErr("URL 必须以 http:// 或 https:// 开头");
+      return;
+    }
+    setCopyFromLoading(true);
+    try {
+      const result = await fetchUpstreamNodesFrom(url, copyFromKey.trim() || undefined);
+      // Active pool entries go into the draft; disabled nodes are written server-side.
+      const activeUrls = result.poolEntries.map((e) => e.url);
+      let added = 0;
+      setPoolDraft((prev) => {
+        const existingUrls = new Set(prev.map((e) => e.url));
+        const toAdd: PoolDraftEntry[] = [];
+        for (const u of activeUrls) {
+          if (!existingUrls.has(u)) {
+            toAdd.push({ url: u, apiKey: "", apiKeyWasSet: false });
+            added++;
+          }
+        }
+        return [...prev, ...toAdd];
+      });
+      setCopyFromOk({ added, skipped: result.disabledNodesImported });
+      setPoolExpanded(true);
+      // Refresh only status + settings object so the disabled-nodes panel updates,
+      // but do NOT call syncFormsFromSettings — that would overwrite the draft we just built.
+      try {
+        const [s, cfg] = await Promise.all([fetchSetupStatus(), fetchSettings()]);
+        setStatus(s);
+        setSettings(cfg);
+      } catch {
+        // silent — 401 or network error, panel will update on next full reload
+      }
+      setTimeout(() => setCopyFromOk(null), 5000);
+    } catch (e) {
+      setCopyFromErr(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      setCopyFromLoading(false);
     }
   }
 
@@ -683,6 +739,49 @@ export default function ConfigPage() {
         </p>
 
         {rpErr && <div className="text-xs text-destructive">{rpErr}</div>}
+
+        {/* Copy from old master node */}
+        <div className="rounded-md border border-border/60 bg-secondary/10 p-3 space-y-2">
+          <p className="text-xs font-medium text-foreground">从旧主节点拷贝上游节点</p>
+          <p className="text-[11px] text-muted-foreground">
+            输入另一个主节点的地址，将其代理池中的全部上游节点（包含被屏蔽的节点）并入当前草稿，去重后点击"保存代理池"生效。
+          </p>
+          <input
+            type="text"
+            value={copyFromUrl}
+            onChange={(e) => { setCopyFromUrl(e.target.value); setCopyFromErr(""); setCopyFromOk(null); }}
+            placeholder="https://old-master.replit.app"
+            className="w-full rounded-md border border-input bg-secondary/30 px-3 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={copyFromKey}
+            onChange={(e) => setCopyFromKey(e.target.value)}
+            placeholder="旧主节点 API 密钥（如无密钥保护可留空）"
+            className="w-full rounded-md border border-input bg-secondary/30 px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <button
+            type="button"
+            disabled={copyFromLoading}
+            onClick={copyFromMaster}
+            className="rounded-md border border-border bg-secondary/30 px-3 py-1.5 text-xs text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50"
+          >
+            {copyFromLoading ? "获取中..." : "↙ 拷贝上游节点"}
+          </button>
+          {copyFromOk && (
+            <p className="text-xs text-green-400">
+              ✓ 已并入 {copyFromOk.added} 个活跃节点到草稿
+              {copyFromOk.skipped > 0 && (
+                <span className="text-amber-400">，导入 {copyFromOk.skipped} 个被屏蔽节点</span>
+              )}
+              ，请检查后点击"保存代理池"
+            </p>
+          )}
+          {copyFromErr && (
+            <p className="text-xs text-destructive">失败：{copyFromErr}</p>
+          )}
+        </div>
       </div>
 
       {/* Disabled Upstream Nodes */}
