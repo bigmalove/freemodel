@@ -182,6 +182,7 @@ export const MODEL_REGISTRY: ModelEntry[] = [
   { id: "openai/gpt-5.4-image-2",            provider: "openrouter", created: 1751328000 },
   { id: "bytedance-seed/seedream-4.5",       provider: "openrouter", created: 1747180800 },
   { id: "bytedance/seedance-2.0",            provider: "openrouter", created: 1747180800 },
+  { id: "bytedance/seedance-2.0-fast",      provider: "openrouter", created: 1747180800 },
   { id: "kwaivgi/kling-v3.0-pro",            provider: "openrouter", created: 1747180800 },
 ];
 
