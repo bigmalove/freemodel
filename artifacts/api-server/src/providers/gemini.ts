@@ -314,7 +314,10 @@ export async function callGemini(
 }
 
 async function* parseGeminiStream(response: Response, requestModel: string): AsyncIterable<StreamChunk> {
-  const reader = response.body!.getReader();
+  if (!response.body) {
+    throw new Error("Gemini stream error: response body is null");
+  }
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   const id = `chatcmpl-gemini-${Date.now()}`;
@@ -402,19 +405,21 @@ async function* parseGeminiStream(response: Response, requestModel: string): Asy
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
+      const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? "";
-
       for (const line of lines) {
         yield* processLine(line);
       }
     }
-    // Process any remaining content in buffer after stream ends
+    // Flush decoder and process any remaining buffered content
+    buffer += decoder.decode();
     if (buffer.trim()) {
       yield* processLine(buffer);
     }
   } catch (err) {
     throw new Error(`Gemini stream error: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    reader.releaseLock();
   }
 }
 
