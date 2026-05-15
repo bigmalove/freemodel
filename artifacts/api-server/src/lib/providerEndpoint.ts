@@ -34,12 +34,65 @@ const UPSTREAM_SEGMENT: Record<ProviderName, string> = {
 // gateway.
 let rrCursor = 0;
 
+// nodeUrl → cooldown expiry timestamp (ms). Nodes in this map are temporarily
+// skipped by round-robin until the expiry passes.
+const nodeCooldowns = new Map<string, number>();
+
+const COOLDOWN_DURATION_MS = 60_000; // 60 seconds
+
+/** Mark a node as rate-limited; it will be skipped for COOLDOWN_DURATION_MS. */
+export function setNodeCooldown(nodeUrl: string, durationMs = COOLDOWN_DURATION_MS): void {
+  nodeCooldowns.set(nodeUrl, Date.now() + durationMs);
+}
+
+/** Check whether a node is currently in its cooldown window. */
+export function isNodeCoolingDown(nodeUrl: string): boolean {
+  const expiry = nodeCooldowns.get(nodeUrl);
+  if (expiry === undefined) return false;
+  if (Date.now() >= expiry) {
+    nodeCooldowns.delete(nodeUrl);
+    return false;
+  }
+  return true;
+}
+
+/** Return a snapshot of all active cooldowns (nodeUrl → remaining ms). */
+export function getActiveCooldowns(): Record<string, number> {
+  const now = Date.now();
+  const result: Record<string, number> = {};
+  for (const [url, expiry] of nodeCooldowns) {
+    const remaining = expiry - now;
+    if (remaining > 0) {
+      result[url] = remaining;
+    } else {
+      nodeCooldowns.delete(url);
+    }
+  }
+  return result;
+}
+
 function pickPoolIndex(pool: PoolEntry[], mode: "round-robin" | "sticky"): number {
   if (pool.length === 0) return -1;
   if (mode === "sticky") return 0;
-  const idx = rrCursor % pool.length;
+
+  // Build list of indices for nodes that are not currently cooling down.
+  const now = Date.now();
+  const available: number[] = [];
+  for (let i = 0; i < pool.length; i++) {
+    const expiry = nodeCooldowns.get(pool[i]!.url);
+    if (expiry === undefined || now >= expiry) {
+      if (expiry !== undefined) nodeCooldowns.delete(pool[i]!.url); // clean up expired entry
+      available.push(i);
+    }
+  }
+
+  // If every node is cooling down, fall back to the full pool rather than
+  // refusing to serve requests entirely.
+  const candidates = available.length > 0 ? available : pool.map((_, i) => i);
+
+  const pick = candidates[rrCursor % candidates.length]!;
   rrCursor = (rrCursor + 1) % Number.MAX_SAFE_INTEGER;
-  return idx;
+  return pick;
 }
 
 /** Peek the index that round-robin will pick next, without advancing. */
