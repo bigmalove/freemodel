@@ -9,6 +9,7 @@ const router = Router();
 // Models that support video generation via OpenRouter
 const VIDEO_MODELS = new Set([
   "bytedance/seedance-2.0",
+  "bytedance/seedance-2.0-fast",
   "kwaivgi/kling-v3.0-pro",
 ]);
 
