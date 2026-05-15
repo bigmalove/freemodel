@@ -92,6 +92,14 @@ export async function callOpenRouter(
     };
   }
 
+  // Force DeepSeek provider channel for deepseek-v4-pro
+  if (actualModel === "deepseek/deepseek-v4-pro") {
+    body["provider"] = {
+      order: ["deepseek"],
+      allow_fallbacks: false,
+    };
+  }
+
   // Force OpenAI (not Azure) for OpenAI reasoning models routed via OpenRouter
   if (isOpenAIReasoningModel) {
     body["provider"] = {
@@ -224,41 +232,46 @@ export async function callOpenRouter(
 }
 
 async function* parseSSEStream(response: Response): AsyncIterable<StreamChunk> {
-  const reader = response.body!.getReader();
+  if (!response.body) {
+    throw new Error("OpenRouter stream error: response body is null");
+  }
+
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+
+  function* processBuffer(flush = false): Generator<StreamChunk> {
+    const lines = buffer.split(/\r?\n/);
+    buffer = flush ? "" : (lines.pop() ?? "");
+    if (flush && buffer) lines.push(buffer);
+
+    for (const line of lines) {
+      if (!line.startsWith("data")) continue;
+      const colonIdx = line.indexOf(":");
+      if (colonIdx === -1) continue;
+      const data = line.slice(colonIdx + 1).trim();
+      if (!data) continue;
+      if (data === "[DONE]") return;
+      try {
+        yield JSON.parse(data) as StreamChunk;
+      } catch {
+        // skip malformed / non-JSON lines
+      }
+    }
+  }
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          const data = line.slice(6).trim();
-          if (data === "[DONE]") return;
-          try {
-            yield JSON.parse(data) as StreamChunk;
-          } catch {
-            // skip malformed chunks
-          }
-        }
-      }
+      yield* processBuffer(false);
     }
-    // Process any remaining content in buffer after stream ends
-    if (buffer.startsWith("data: ")) {
-      const data = buffer.slice(6).trim();
-      if (data && data !== "[DONE]") {
-        try {
-          yield JSON.parse(data) as StreamChunk;
-        } catch {
-          // skip malformed chunks
-        }
-      }
-    }
+    buffer += decoder.decode();
+    yield* processBuffer(true);
   } catch (err) {
     throw new Error(`OpenRouter stream error: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    reader.releaseLock();
   }
 }
