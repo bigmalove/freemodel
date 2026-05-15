@@ -219,6 +219,13 @@ export interface CopyFromResult {
   disabledNodesImported: number;
 }
 
+export async function fetchCooldowns(): Promise<Record<string, number>> {
+  const res = await fetch(`${API_BASE}/upstream-nodes/cooldowns`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(await res.text());
+  const data = (await res.json()) as { cooldowns: Record<string, number> };
+  return data.cooldowns;
+}
+
 export async function fetchUpstreamNodesFrom(masterUrl: string, apiKey?: string): Promise<CopyFromResult> {
   const res = await fetch(`${API_BASE}/upstream-nodes/copy-from`, {
     method: "POST",
