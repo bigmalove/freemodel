@@ -362,7 +362,10 @@ async function* parseAnthropicStream(
   response: Response,
   requestModel: string,
 ): AsyncIterable<StreamChunk> {
-  const reader = response.body!.getReader();
+  if (!response.body) {
+    throw new Error("Anthropic stream error: response body is null");
+  }
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   const id = `chatcmpl-anthropic-${Date.now()}`;
@@ -388,21 +391,23 @@ async function* parseAnthropicStream(
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
+      const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? "";
-
       for (const line of lines) {
         const chunk = processLine(line);
         if (chunk) yield chunk;
       }
     }
-    // Process any remaining content in buffer after stream ends
+    // Flush decoder and process any remaining buffered content
+    buffer += decoder.decode();
     if (buffer.trim()) {
       const chunk = processLine(buffer);
       if (chunk) yield chunk;
     }
   } catch (err) {
     throw new Error(`Anthropic stream error: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    reader.releaseLock();
   }
 }
 
