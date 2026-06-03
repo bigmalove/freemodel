@@ -1,22 +1,19 @@
-const API_BASE = "/api";
+﻿const API_BASE = "/api";
 const V1_BASE = "/v1";
 
 export type ProviderName = "openai" | "anthropic" | "gemini" | "openrouter";
 
-export type ProviderSource = "upstream" | "local-env" | "per-provider override";
+export type ProviderSource = "upstream" | "local-env" | "per-provider override" | "settings";
 
 export type ReverseProxyMode = "round-robin" | "sticky";
 
 export interface SetupStatus {
   configured: boolean;
   providers: {
-    openai: boolean;
-    anthropic: boolean;
-    gemini: boolean;
-    openrouter: boolean;
+    cc: boolean;
     proxyKey: boolean;
   };
-  providerSources?: Record<ProviderName, ProviderSource | null>;
+  providerSources?: Record<string, ProviderSource | null>;
   reverseProxy?: boolean;
   pool?: { size: number; mode: ReverseProxyMode; nextIndex: number | null };
 }
@@ -48,6 +45,7 @@ export interface Settings {
   reverseProxyPool: PublicPoolEntry[];
   providerOverrides: Record<ProviderName, PublicProviderOverride>;
   disabledUpstreamNodes: DisabledUpstreamNode[];
+  ccUpstreamApiKeySet: boolean;
 }
 
 export interface ProviderOverridePatch {
@@ -68,6 +66,7 @@ export interface SettingsPatch {
   reverseProxyMode?: ReverseProxyMode;
   reverseProxyPool?: PoolEntryPatch[];
   providerOverrides?: Partial<Record<ProviderName, ProviderOverridePatch>>;
+  ccUpstreamApiKey?: string | null;
 }
 
 export interface ModelEntry {
@@ -84,6 +83,12 @@ export interface ModelsResponse {
   data: ModelEntry[];
 }
 
+export interface CcTestResponse {
+  ok: boolean;
+  model?: string;
+  content?: string;
+  error?: string;
+}
 function safeLocalStorage() {
   try {
     return window.localStorage;
@@ -238,4 +243,16 @@ export async function fetchUpstreamNodesFrom(masterUrl: string, apiKey?: string)
     throw new Error(msg);
   }
   return res.json();
+}
+
+export async function testCcConnection(): Promise<CcTestResponse> {
+  const res = await fetch(`${API_BASE}/cc/test`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  const data = (await res.json()) as CcTestResponse;
+  if (!res.ok) {
+    throw new Error(data.error ?? JSON.stringify(data));
+  }
+  return data;
 }

@@ -1,4 +1,4 @@
-import { readJsonAsync, writeJson } from "./persist.js";
+﻿import { readJsonAsync, writeJson } from "./persist.js";
 
 export type ProviderName = "openai" | "anthropic" | "gemini" | "openrouter";
 
@@ -38,6 +38,7 @@ export interface ServerSettings {
   reverseProxyPool: PoolEntry[];
   disabledUpstreamNodes: DisabledUpstreamNode[];
   providerOverrides: ProviderOverrides;
+  ccUpstreamApiKey: string;
 }
 
 const EMPTY_OVERRIDE: ProviderOverride = { url: "", apiKey: "" };
@@ -56,6 +57,7 @@ const DEFAULTS: ServerSettings = {
   reverseProxyPool: [],
   disabledUpstreamNodes: [],
   providerOverrides: EMPTY_OVERRIDES,
+  ccUpstreamApiKey: "",
 };
 
 let _settings: ServerSettings | null = null;
@@ -161,7 +163,12 @@ export async function initSettings(): Promise<void> {
     reverseProxyPool: pool,
     disabledUpstreamNodes: normalizeDisabledNodes(loaded["disabledUpstreamNodes"]),
     providerOverrides: normalizeOverrides(loaded["providerOverrides"]),
+    ccUpstreamApiKey: typeof loaded["ccUpstreamApiKey"] === "string" ? (loaded["ccUpstreamApiKey"] as string) : DEFAULTS.ccUpstreamApiKey,
   };
+}
+
+export function getCcUpstreamApiKey(): string {
+  return getSettings().ccUpstreamApiKey.trim() || process.env["CC_UPSTREAM_API_KEY"]?.trim() || "";
 }
 
 export function getSettings(): ServerSettings {
@@ -266,7 +273,12 @@ export function updateSettings(patch: Partial<ServerSettings>): ServerSettings {
     next.reverseProxyMode = normalizeMode(patch.reverseProxyMode);
   }
 
+  if (patch.ccUpstreamApiKey !== undefined) {
+    next.ccUpstreamApiKey = patch.ccUpstreamApiKey.trim();
+  }
+
   _settings = next;
   writeJson("server_settings.json", _settings);
   return _settings;
 }
+

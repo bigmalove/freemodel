@@ -2,37 +2,13 @@ import { Router, type Request, type Response } from "express";
 import { requireAuth } from "../../lib/auth.js";
 import { resolveProvider, isModelDisabled, getDefaultModel } from "../../lib/models.js";
 import { getSettings } from "../../lib/settings.js";
-import { callOpenAI } from "../../providers/openai.js";
-import { callAnthropic } from "../../providers/anthropic.js";
-import { callGemini } from "../../providers/gemini.js";
-import { callOpenRouter } from "../../providers/openrouter.js";
+import { callCcClaudeCode } from "../../providers/ccClaudeCode.js";
 import { logger } from "../../lib/logger.js";
-import type { ChatCompletionRequest, StreamChunk } from "../../types.js";
+import type { ChatCompletionRequest, ChatCompletionResponse, StreamChunk } from "../../types.js";
 
 const MAX_ATTEMPTS = 3;
 
 const router = Router();
-
-// Whitelisted client request headers to forward to upstream providers.
-// Anything outside this list is dropped at the gateway. The whitelist is
-// upstream-agnostic; each provider picks the headers it cares about.
-const PASSTHROUGH_HEADERS = [
-  "anthropic-beta",
-  "anthropic-version",
-  "openai-beta",
-  "openai-organization",
-  "openai-project",
-  "x-goog-api-client",
-] as const;
-
-function extractPassthroughHeaders(req: Request): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const k of PASSTHROUGH_HEADERS) {
-    const v = req.headers[k];
-    if (typeof v === "string" && v.length > 0) out[k] = v;
-  }
-  return out;
-}
 
 router.post("/v1/chat/completions", requireAuth, async (req: Request, res: Response) => {
   // Allow up to 600 seconds for model generation
@@ -64,26 +40,22 @@ router.post("/v1/chat/completions", requireAuth, async (req: Request, res: Respo
 
   if (
     settings.sillyTavernMode &&
-    provider === "anthropic" &&
+    provider === "cc-claude-code" &&
     (!body.tools || body.tools.length === 0)
   ) {
     messages.push({ role: "user", content: "继续" });
   }
 
   const request: ChatCompletionRequest = { ...body, model, messages };
-  const clientHeaders = extractPassthroughHeaders(req);
 
   async function callProvider() {
     switch (provider) {
-      case "openai":      return callOpenAI(request, clientHeaders);
-      case "anthropic":   return callAnthropic(request, clientHeaders);
-      case "gemini":      return callGemini(request, clientHeaders);
-      case "openrouter":  return callOpenRouter(request, clientHeaders);
-      default:            throw new Error("Unknown provider");
+      case "cc-claude-code": return callCcClaudeCode(request);
+      default:                throw new Error("Unknown provider");
     }
   }
 
-  let result: Awaited<ReturnType<typeof callOpenAI>> | undefined;
+  let result: ChatCompletionResponse | AsyncIterable<StreamChunk> | undefined;
   let lastErr: unknown;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -134,3 +106,4 @@ router.post("/v1/chat/completions", requireAuth, async (req: Request, res: Respo
 });
 
 export default router;
+

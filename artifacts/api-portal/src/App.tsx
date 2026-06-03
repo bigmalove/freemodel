@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import ConfigPage from "./pages/ConfigPage";
 import ModelsPage from "./pages/ModelsPage";
 import DocsPage from "./pages/DocsPage";
@@ -30,8 +30,8 @@ export default function App() {
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
           <GatewayIcon />
           <div>
-            <h1 className="text-sm font-semibold text-foreground leading-none">AI 网关</h1>
-            <p className="text-xs text-muted-foreground leading-none mt-0.5">管理门户</p>
+            <h1 className="text-sm font-semibold text-foreground leading-none">FreeModel 中转</h1>
+            <p className="text-xs text-muted-foreground leading-none mt-0.5">OpenAI 兼容管理门户</p>
           </div>
           <div className="ml-auto flex items-center gap-1">
             <span className="size-2 rounded-full bg-green-400 animate-pulse" />
@@ -72,3 +72,4 @@ export default function App() {
     </div>
   );
 }
+

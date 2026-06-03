@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import {
   getSettings,
   updateSettings,
@@ -41,6 +41,7 @@ interface PublicSettings {
   reverseProxyPool: PublicPoolEntry[];
   providerOverrides: Record<ProviderName, PublicProviderOverride>;
   disabledUpstreamNodes: PublicDisabledNode[];
+  ccUpstreamApiKeySet: boolean;
 }
 
 function toPublic(s: ServerSettings): PublicSettings {
@@ -57,6 +58,7 @@ function toPublic(s: ServerSettings): PublicSettings {
     reverseProxyMode: s.reverseProxyMode,
     reverseProxyPool: s.reverseProxyPool.map((e) => ({ url: e.url, apiKeySet: !!e.apiKey })),
     providerOverrides: overrides,
+    ccUpstreamApiKeySet: !!s.ccUpstreamApiKey || !!process.env["CC_UPSTREAM_API_KEY"],
     disabledUpstreamNodes: s.disabledUpstreamNodes.map((n) => ({
       url: n.url,
       type: n.type,
@@ -100,6 +102,7 @@ router.post("/api/settings", requireAuth, (req, res) => {
     providerOverrides?: Partial<
       Record<ProviderName, { url?: string; apiKey?: string | null }>
     >;
+    ccUpstreamApiKey?: string | null;
   };
   const patch: Partial<ServerSettings> = {};
   const current = getSettings();
@@ -110,6 +113,12 @@ router.post("/api/settings", requireAuth, (req, res) => {
   if (typeof body.reverseProxyEnabled === "boolean") {
     patch.reverseProxyEnabled = body.reverseProxyEnabled;
   }
+  if (typeof body.ccUpstreamApiKey === "string" && body.ccUpstreamApiKey.length > 0) {
+    patch.ccUpstreamApiKey = body.ccUpstreamApiKey;
+  } else if (body.ccUpstreamApiKey === null) {
+    patch.ccUpstreamApiKey = "";
+  }
+
   if (body.reverseProxyMode !== undefined) {
     if (body.reverseProxyMode !== "round-robin" && body.reverseProxyMode !== "sticky") {
       res.status(400).json({
@@ -248,3 +257,4 @@ router.post("/api/settings", requireAuth, (req, res) => {
 });
 
 export default router;
+

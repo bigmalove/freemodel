@@ -1,10 +1,23 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import { requireAuth } from "../../lib/auth.js";
-import { getEnabledModels, getAllModelsWithStatus, patchModelDisabled } from "../../lib/models.js";
+import { getCcUpstreamApiKey } from "../../lib/settings.js";
+import { getEnabledModels, getAllModelsWithStatus, patchModelDisabled, refreshCcModels } from "../../lib/models.js";
+import { logger } from "../../lib/logger.js";
 
 const router = Router();
 
-router.get("/v1/models", requireAuth, (_req, res) => {
+async function refreshModelsIfConfigured(): Promise<void> {
+  const key = getCcUpstreamApiKey();
+  if (!key) return;
+  try {
+    await refreshCcModels(key);
+  } catch (err) {
+    logger.warn({ err }, "Failed to refresh cc model list; using cached/default models");
+  }
+}
+
+router.get("/v1/models", requireAuth, async (_req, res) => {
+  await refreshModelsIfConfigured();
   const models = getEnabledModels();
   res.json({
     object: "list",
@@ -17,7 +30,8 @@ router.get("/v1/models", requireAuth, (_req, res) => {
   });
 });
 
-router.get("/v1/admin/models", requireAuth, (_req, res) => {
+router.get("/v1/admin/models", requireAuth, async (_req, res) => {
+  await refreshModelsIfConfigured();
   const models = getAllModelsWithStatus();
   res.json({
     object: "list",

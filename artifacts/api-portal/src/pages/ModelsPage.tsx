@@ -1,18 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
+﻿import { useState, useEffect, useCallback } from "react";
 import { fetchAdminModels, patchModel, patchProviderModels, type ModelEntry } from "../lib/api";
 
 const PROVIDER_LABELS: Record<string, string> = {
-  openai: "OpenAI",
-  anthropic: "Anthropic",
-  gemini: "谷歌 Gemini",
-  openrouter: "OpenRouter",
+  "cc-claude-code": "FreeModel Claude Code",
 };
 
 const PROVIDER_COLORS: Record<string, string> = {
-  openai: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  anthropic: "bg-orange-500/10 text-orange-400 border-orange-500/20",
-  gemini: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  openrouter: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  "cc-claude-code": "bg-orange-500/10 text-orange-400 border-orange-500/20",
 };
 
 function Toggle({ enabled, onChange, disabled }: { enabled: boolean; onChange: () => void; disabled?: boolean }) {
@@ -219,3 +213,4 @@ export default function ModelsPage() {
     </div>
   );
 }
+
