@@ -1,4 +1,4 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import { requireAuth } from "../../lib/auth.js";
 
 const router = Router();

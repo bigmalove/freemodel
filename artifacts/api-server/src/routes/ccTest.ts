@@ -1,6 +1,6 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import { requireAuth } from "../lib/auth.js";
-import { getCcUpstreamApiKey } from "../lib/settings.js";
+import { isCcUpstreamConfigured } from "../lib/ccUpstreamKeys.js";
 import { getDefaultModel } from "../lib/models.js";
 import { callCcClaudeCode } from "../providers/ccClaudeCode.js";
 import type { ChatCompletionRequest, ChatCompletionResponse } from "../types.js";
@@ -8,7 +8,7 @@ import type { ChatCompletionRequest, ChatCompletionResponse } from "../types.js"
 const router = Router();
 
 router.post("/api/cc/test", requireAuth, async (_req, res) => {
-  if (!getCcUpstreamApiKey()) {
+  if (!isCcUpstreamConfigured()) {
     res.status(400).json({ ok: false, error: "cc upstream API key is not configured" });
     return;
   }
@@ -26,7 +26,7 @@ router.post("/api/cc/test", requireAuth, async (_req, res) => {
     res.json({ ok: content.trim() === "pong", model, content });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    res.status(502).json({ ok: false, error: message.replace(getCcUpstreamApiKey(), "[redacted]") });
+    res.status(502).json({ ok: false, error: message });
   }
 });
 

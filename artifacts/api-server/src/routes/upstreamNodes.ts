@@ -1,6 +1,8 @@
 import { Router } from "express";
-import { getSettings, updateSettings, type DisabledUpstreamNode, type UpstreamNodeType } from "../lib/settings.js";
+import { getSettings, reEnableCcUpstreamKey, updateSettings, type DisabledUpstreamNode, type UpstreamNodeType } from "../lib/settings.js";
 import { getActiveCooldowns } from "../lib/providerEndpoint.js";
+import { getActiveCcKeyCooldowns } from "../lib/ccUpstreamKeys.js";
+import { requireAuth } from "../lib/auth.js";
 
 const router = Router();
 
@@ -18,8 +20,24 @@ function classifyHost(url: string): UpstreamNodeType | null {
 }
 
 router.get("/api/upstream-nodes/cooldowns", (_req, res) => {
-  const cooldowns = getActiveCooldowns();
+  const cooldowns = { ...getActiveCooldowns(), ...getActiveCcKeyCooldowns() };
   res.json({ cooldowns });
+});
+
+router.post("/api/cc/upstream-keys/re-enable", requireAuth, (req, res) => {
+  const body = (req.body ?? {}) as { id?: unknown };
+  if (typeof body.id !== "string" || !body.id.trim()) {
+    res.status(400).json({ error: { message: "id is required", type: "validation_error" } });
+    return;
+  }
+
+  const ok = reEnableCcUpstreamKey(body.id.trim());
+  if (!ok) {
+    res.status(404).json({ error: { message: "Key not found in disabled list", type: "not_found" } });
+    return;
+  }
+
+  res.json({ re_enabled: true, id: body.id.trim() });
 });
 
 router.post("/api/upstream-nodes/register", (req, res) => {

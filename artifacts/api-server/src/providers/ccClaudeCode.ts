@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getCcUpstreamApiKey } from "../lib/settings.js";
+import { markCcUpstreamKeyFailure, resolveCcUpstreamKey } from "../lib/ccUpstreamKeys.js";
 import {
   CC_CLAUDE_CODE_BASE_URL,
   buildThinkingPayload,
@@ -433,25 +433,27 @@ function buildNonStreamResponse(requestModel: string, state: StreamState): ChatC
   };
 }
 
+function redactSecret(text: string, secret: string): string {
+  if (!secret) return text;
+  return text.split(secret).join("[redacted]");
+}
+
 export async function callCcClaudeCode(
   request: ChatCompletionRequest,
 ): Promise<ChatCompletionResponse | AsyncIterable<StreamChunk>> {
-  const apiKey = getCcUpstreamApiKey();
-  if (!apiKey) {
-    throw new Error("cc upstream API key is not configured. Set it in the admin portal or CC_UPSTREAM_API_KEY.");
-  }
-
+  const selection = resolveCcUpstreamKey();
   const sessionId = randomUUID();
   const parsedModel = parseCcModel(request.model);
   const response = await fetch(UPSTREAM_MESSAGES_URL, {
     method: "POST",
-    headers: buildHeaders(apiKey, sessionId),
+    headers: buildHeaders(selection.apiKey, sessionId),
     body: JSON.stringify(buildRequestBody(request, sessionId)),
   });
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`cc upstream error ${response.status}: ${text}`);
+    markCcUpstreamKeyFailure({ selection, responseStatus: response.status, responseBody: text });
+    throw new Error(`cc upstream error ${response.status}: ${redactSecret(text, selection.apiKey)}`);
   }
 
   const state: StreamState = { text: "", finishReason: null, promptTokens: 0, completionTokens: 0 };

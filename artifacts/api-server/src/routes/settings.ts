@@ -1,12 +1,15 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import {
+  createCcUpstreamKeyId,
+  getCcUpstreamApiKey,
   getSettings,
   updateSettings,
-  type ServerSettings,
+  type CcUpstreamKeyEntry,
   type ProviderName,
   type ProviderOverrides,
   type PoolEntry,
   type ReverseProxyMode,
+  type ServerSettings,
 } from "../lib/settings.js";
 import { requireAuth } from "../lib/auth.js";
 
@@ -22,6 +25,19 @@ interface PublicPoolEntry {
 interface PublicProviderOverride {
   url: string;
   apiKeySet: boolean;
+}
+
+interface PublicCcKeyEntry {
+  id: string;
+  apiKeySet: boolean;
+}
+
+interface PublicDisabledCcKey {
+  id: string;
+  disabledReason: string;
+  disabledAt?: string;
+  lastError?: string;
+  upstreamStatus?: number;
 }
 
 interface PublicDisabledNode {
@@ -42,6 +58,8 @@ interface PublicSettings {
   providerOverrides: Record<ProviderName, PublicProviderOverride>;
   disabledUpstreamNodes: PublicDisabledNode[];
   ccUpstreamApiKeySet: boolean;
+  ccUpstreamKeyPool: PublicCcKeyEntry[];
+  disabledCcUpstreamKeys: PublicDisabledCcKey[];
 }
 
 function toPublic(s: ServerSettings): PublicSettings {
@@ -58,7 +76,15 @@ function toPublic(s: ServerSettings): PublicSettings {
     reverseProxyMode: s.reverseProxyMode,
     reverseProxyPool: s.reverseProxyPool.map((e) => ({ url: e.url, apiKeySet: !!e.apiKey })),
     providerOverrides: overrides,
-    ccUpstreamApiKeySet: !!s.ccUpstreamApiKey || !!process.env["CC_UPSTREAM_API_KEY"],
+    ccUpstreamApiKeySet: !!getCcUpstreamApiKey(),
+    ccUpstreamKeyPool: s.ccUpstreamKeyPool.map((e) => ({ id: e.id, apiKeySet: !!e.apiKey })),
+    disabledCcUpstreamKeys: s.disabledCcUpstreamKeys.map((e) => ({
+      id: e.id,
+      disabledReason: e.disabledReason,
+      disabledAt: e.disabledAt,
+      lastError: e.lastError,
+      upstreamStatus: e.upstreamStatus,
+    })),
     disabledUpstreamNodes: s.disabledUpstreamNodes.map((n) => ({
       url: n.url,
       type: n.type,
@@ -96,13 +122,13 @@ router.post("/api/settings", requireAuth, (req, res) => {
     reverseProxyEnabled?: boolean;
     reverseProxyMode?: ReverseProxyMode;
     reverseProxyPool?: Array<{ url?: string; apiKey?: string | null }>;
-    // Legacy back-compat fields (mapped onto pool[0]).
     reverseProxyUrl?: string;
     reverseProxyApiKey?: string | null;
     providerOverrides?: Partial<
       Record<ProviderName, { url?: string; apiKey?: string | null }>
     >;
     ccUpstreamApiKey?: string | null;
+    ccUpstreamKeyPool?: Array<{ id?: string; apiKey?: string | null }>;
   };
   const patch: Partial<ServerSettings> = {};
   const current = getSettings();
@@ -113,12 +139,6 @@ router.post("/api/settings", requireAuth, (req, res) => {
   if (typeof body.reverseProxyEnabled === "boolean") {
     patch.reverseProxyEnabled = body.reverseProxyEnabled;
   }
-  if (typeof body.ccUpstreamApiKey === "string" && body.ccUpstreamApiKey.length > 0) {
-    patch.ccUpstreamApiKey = body.ccUpstreamApiKey;
-  } else if (body.ccUpstreamApiKey === null) {
-    patch.ccUpstreamApiKey = "";
-  }
-
   if (body.reverseProxyMode !== undefined) {
     if (body.reverseProxyMode !== "round-robin" && body.reverseProxyMode !== "sticky") {
       res.status(400).json({
@@ -129,12 +149,61 @@ router.post("/api/settings", requireAuth, (req, res) => {
     patch.reverseProxyMode = body.reverseProxyMode;
   }
 
-  // Pool replacement (preferred path).
+  if (Array.isArray(body.ccUpstreamKeyPool)) {
+    const existingKeyById = new Map<string, string>();
+    for (const entry of current.ccUpstreamKeyPool) existingKeyById.set(entry.id, entry.apiKey);
+
+    const cleaned: CcUpstreamKeyEntry[] = [];
+    const seenIds = new Set<string>();
+    for (let i = 0; i < body.ccUpstreamKeyPool.length; i++) {
+      const incoming = body.ccUpstreamKeyPool[i] ?? {};
+      let id = typeof incoming.id === "string" ? incoming.id.trim() : "";
+      if (id && seenIds.has(id)) {
+        res.status(400).json({ error: { message: `ccUpstreamKeyPool[${i}].id is duplicated`, type: "validation_error" } });
+        return;
+      }
+
+      let apiKey = "";
+      if (typeof incoming.apiKey === "string" && incoming.apiKey.length > 0) {
+        apiKey = incoming.apiKey.trim();
+      } else if (id && incoming.apiKey !== null) {
+        apiKey = existingKeyById.get(id) ?? "";
+      }
+
+      if (!apiKey) {
+        res.status(400).json({ error: { message: `第 ${i + 1} 条 cc 上游 Key 不能为空`, type: "validation_error" } });
+        return;
+      }
+
+      if (!id) id = createCcUpstreamKeyId();
+      seenIds.add(id);
+      cleaned.push({ id, apiKey });
+    }
+    patch.ccUpstreamKeyPool = cleaned;
+    if (cleaned.length > 0 && body.reverseProxyEnabled === undefined) {
+      patch.reverseProxyEnabled = true;
+    }
+  }
+
+  if (typeof body.ccUpstreamApiKey === "string" && body.ccUpstreamApiKey.length > 0) {
+    const apiKey = body.ccUpstreamApiKey.trim();
+    patch.ccUpstreamApiKey = apiKey;
+    if (!Array.isArray(body.ccUpstreamKeyPool)) {
+      const firstId = current.ccUpstreamKeyPool[0]?.id ?? createCcUpstreamKeyId();
+      patch.ccUpstreamKeyPool = [{ id: firstId, apiKey }];
+      if (body.reverseProxyEnabled === undefined) patch.reverseProxyEnabled = true;
+    }
+  } else if (body.ccUpstreamApiKey === null) {
+    patch.ccUpstreamApiKey = "";
+    if (!Array.isArray(body.ccUpstreamKeyPool)) {
+      patch.ccUpstreamKeyPool = [];
+      if (body.reverseProxyEnabled === undefined) patch.reverseProxyEnabled = false;
+    }
+  }
+
   if (Array.isArray(body.reverseProxyPool)) {
     const cleaned: PoolEntry[] = [];
     const seen = new Set<string>();
-    // Build a lookup of existing keys keyed by URL so we can preserve them
-    // when client sends back the same URL with blank apiKey ("leave unchanged").
     const existingKeyByUrl = new Map<string, string>();
     for (const e of current.reverseProxyPool) existingKeyByUrl.set(e.url, e.apiKey);
 
@@ -155,71 +224,42 @@ router.post("/api/settings", requireAuth, (req, res) => {
       }
       if (seen.has(url)) continue;
       seen.add(url);
-
-      let apiKey: string;
-      const incomingKey = incoming.apiKey;
-      if (typeof incomingKey === "string" && incomingKey.length > 0) {
-        apiKey = incomingKey;
-      } else if (incomingKey === null) {
+      let apiKey = existingKeyByUrl.get(url) ?? "";
+      if (typeof incoming.apiKey === "string" && incoming.apiKey.length > 0) {
+        apiKey = incoming.apiKey;
+      } else if (incoming.apiKey === null) {
         apiKey = "";
-      } else {
-        // undefined or empty string → preserve existing key for this URL
-        apiKey = existingKeyByUrl.get(url) ?? "";
       }
       cleaned.push({ url, apiKey });
     }
     patch.reverseProxyPool = cleaned;
-  } else {
-    // Legacy back-compat: reverseProxyUrl + reverseProxyApiKey map onto pool[0].
+  }
+
+  if (body.reverseProxyUrl !== undefined || body.reverseProxyApiKey !== undefined) {
+    let url = current.reverseProxyPool[0]?.url ?? "";
+    let apiKey = current.reverseProxyPool[0]?.apiKey ?? "";
     if (typeof body.reverseProxyUrl === "string") {
-      let legacyUrl: string;
       try {
-        legacyUrl = validateUrl(body.reverseProxyUrl, "reverseProxyUrl");
+        url = validateUrl(body.reverseProxyUrl, "reverseProxyUrl");
       } catch (e) {
         res.status(400).json({ error: { message: (e as Error).message, type: "validation_error" } });
         return;
       }
-      const existingFirst = current.reverseProxyPool[0];
-      let legacyKey = existingFirst?.apiKey ?? "";
-      if (typeof body.reverseProxyApiKey === "string" && body.reverseProxyApiKey.length > 0) {
-        legacyKey = body.reverseProxyApiKey;
-      } else if (body.reverseProxyApiKey === null) {
-        legacyKey = "";
-      }
-      if (legacyUrl) {
-        // Replace pool[0] (or insert), keep the rest.
-        const rest = current.reverseProxyPool.slice(1).filter((e) => e.url !== legacyUrl);
-        patch.reverseProxyPool = [{ url: legacyUrl, apiKey: legacyKey }, ...rest];
-      } else {
-        // Legacy clear: drop pool[0] but keep the rest. (Unlikely path.)
-        patch.reverseProxyPool = current.reverseProxyPool.slice(1);
-      }
-    } else if (body.reverseProxyApiKey !== undefined) {
-      // Legacy key-only update applies to pool[0].
-      const first = current.reverseProxyPool[0];
-      if (first) {
-        let nextKey = first.apiKey;
-        if (typeof body.reverseProxyApiKey === "string" && body.reverseProxyApiKey.length > 0) {
-          nextKey = body.reverseProxyApiKey;
-        } else if (body.reverseProxyApiKey === null) {
-          nextKey = "";
-        }
-        patch.reverseProxyPool = [{ url: first.url, apiKey: nextKey }, ...current.reverseProxyPool.slice(1)];
-      }
     }
+    if (typeof body.reverseProxyApiKey === "string" && body.reverseProxyApiKey.length > 0) {
+      apiKey = body.reverseProxyApiKey;
+    } else if (body.reverseProxyApiKey === null) {
+      apiKey = "";
+    }
+    patch.reverseProxyPool = url ? [{ url, apiKey }] : [];
   }
 
   if (body.providerOverrides && typeof body.providerOverrides === "object") {
-    const merged: ProviderOverrides = {
-      openai: { ...current.providerOverrides.openai },
-      anthropic: { ...current.providerOverrides.anthropic },
-      gemini: { ...current.providerOverrides.gemini },
-      openrouter: { ...current.providerOverrides.openrouter },
-    };
+    const merged: ProviderOverrides = { ...current.providerOverrides };
     for (const p of PROVIDERS) {
       const incoming = body.providerOverrides[p];
       if (!incoming) continue;
-      if (typeof incoming.url === "string") {
+      if (incoming.url !== undefined) {
         try {
           merged[p].url = validateUrl(incoming.url, `providerOverrides.${p}.url`);
         } catch (e) {
@@ -236,16 +276,14 @@ router.post("/api/settings", requireAuth, (req, res) => {
     patch.providerOverrides = merged;
   }
 
-  // Reject enabling reverse-proxy mode without any usable upstream URL.
   const wantEnabled = patch.reverseProxyEnabled ?? current.reverseProxyEnabled;
-  const nextPool = patch.reverseProxyPool ?? current.reverseProxyPool;
-  const nextOverrides = patch.providerOverrides ?? current.providerOverrides;
-  const anyOverrideUrl = Object.values(nextOverrides).some((o) => !!o.url);
-  if (wantEnabled && nextPool.length === 0 && !anyOverrideUrl) {
+  const nextCcPool = patch.ccUpstreamKeyPool ?? current.ccUpstreamKeyPool;
+  const nextLegacyCcKey = patch.ccUpstreamApiKey ?? current.ccUpstreamApiKey;
+  const hasCcKey = nextCcPool.length > 0 || !!nextLegacyCcKey.trim() || !!process.env["CC_UPSTREAM_API_KEY"]?.trim();
+  if (wantEnabled && !hasCcKey) {
     res.status(400).json({
       error: {
-        message:
-          "reverseProxyPool (or at least one providerOverrides.<provider>.url) must be set before enabling reverse-proxy mode",
+        message: "ccUpstreamKeyPool must contain at least one upstream API Key before enabling cc upstream mode",
         type: "validation_error",
       },
     });
@@ -257,4 +295,3 @@ router.post("/api/settings", requireAuth, (req, res) => {
 });
 
 export default router;
-

@@ -1,4 +1,4 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import { requireAuth } from "../../lib/auth.js";
 import { getCcUpstreamApiKey } from "../../lib/settings.js";
 import { getEnabledModels, getAllModelsWithStatus, patchModelDisabled, refreshCcModels } from "../../lib/models.js";

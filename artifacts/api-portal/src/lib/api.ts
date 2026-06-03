@@ -1,4 +1,4 @@
-﻿const API_BASE = "/api";
+const API_BASE = "/api";
 const V1_BASE = "/v1";
 
 export type ProviderName = "openai" | "anthropic" | "gemini" | "openrouter";
@@ -28,6 +28,19 @@ export interface PublicPoolEntry {
   apiKeySet: boolean;
 }
 
+export interface PublicCcKeyEntry {
+  id: string;
+  apiKeySet: boolean;
+}
+
+export interface DisabledCcUpstreamKey {
+  id: string;
+  disabledReason: string;
+  disabledAt?: string;
+  lastError?: string;
+  upstreamStatus?: number;
+}
+
 export interface DisabledUpstreamNode {
   url: string;
   type: string;
@@ -46,6 +59,8 @@ export interface Settings {
   providerOverrides: Record<ProviderName, PublicProviderOverride>;
   disabledUpstreamNodes: DisabledUpstreamNode[];
   ccUpstreamApiKeySet: boolean;
+  ccUpstreamKeyPool: PublicCcKeyEntry[];
+  disabledCcUpstreamKeys: DisabledCcUpstreamKey[];
 }
 
 export interface ProviderOverridePatch {
@@ -60,6 +75,12 @@ export interface PoolEntryPatch {
   apiKey?: string | null;
 }
 
+export interface CcKeyEntryPatch {
+  id?: string;
+  // Empty string / undefined = preserve existing key for this ID; null = clear.
+  apiKey?: string | null;
+}
+
 export interface SettingsPatch {
   sillyTavernMode?: boolean;
   reverseProxyEnabled?: boolean;
@@ -67,6 +88,7 @@ export interface SettingsPatch {
   reverseProxyPool?: PoolEntryPatch[];
   providerOverrides?: Partial<Record<ProviderName, ProviderOverridePatch>>;
   ccUpstreamApiKey?: string | null;
+  ccUpstreamKeyPool?: CcKeyEntryPatch[];
 }
 
 export interface ModelEntry {
@@ -215,6 +237,15 @@ export async function reEnableUpstreamNode(url: string): Promise<void> {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({ url }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function reEnableCcUpstreamKey(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/cc/upstream-keys/re-enable`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ id }),
   });
   if (!res.ok) throw new Error(await res.text());
 }

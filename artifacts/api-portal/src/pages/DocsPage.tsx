@@ -1,4 +1,4 @@
-﻿export default function DocsPage() {
+export default function DocsPage() {
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "<your-gateway-url>";
 
   return (

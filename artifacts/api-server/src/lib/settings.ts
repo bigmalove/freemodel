@@ -1,4 +1,5 @@
-﻿import { readJsonAsync, writeJson } from "./persist.js";
+import { randomUUID } from "node:crypto";
+import { readJsonAsync, writeJson } from "./persist.js";
 
 export type ProviderName = "openai" | "anthropic" | "gemini" | "openrouter";
 
@@ -14,6 +15,22 @@ export type ReverseProxyMode = "round-robin" | "sticky";
 export interface PoolEntry {
   url: string;
   apiKey: string;
+}
+
+export interface CcUpstreamKeyEntry {
+  id: string;
+  apiKey: string;
+}
+
+export type CcDisabledReason = "upstream-key-unavailable";
+
+export interface DisabledCcUpstreamKey {
+  id: string;
+  apiKey: string;
+  disabledReason: CcDisabledReason;
+  upstreamStatus?: number;
+  disabledAt?: string;
+  lastError?: string;
 }
 
 export type UpstreamNodeType = "replit-app" | "replit-dev";
@@ -39,6 +56,8 @@ export interface ServerSettings {
   disabledUpstreamNodes: DisabledUpstreamNode[];
   providerOverrides: ProviderOverrides;
   ccUpstreamApiKey: string;
+  ccUpstreamKeyPool: CcUpstreamKeyEntry[];
+  disabledCcUpstreamKeys: DisabledCcUpstreamKey[];
 }
 
 const EMPTY_OVERRIDE: ProviderOverride = { url: "", apiKey: "" };
@@ -58,9 +77,15 @@ const DEFAULTS: ServerSettings = {
   disabledUpstreamNodes: [],
   providerOverrides: EMPTY_OVERRIDES,
   ccUpstreamApiKey: "",
+  ccUpstreamKeyPool: [],
+  disabledCcUpstreamKeys: [],
 };
 
 let _settings: ServerSettings | null = null;
+
+export function createCcUpstreamKeyId(): string {
+  return `cckey_${randomUUID()}`;
+}
 
 function normalizeOverrides(raw: unknown): ProviderOverrides {
   const out: ProviderOverrides = {
@@ -99,6 +124,48 @@ function normalizePool(raw: unknown): PoolEntry[] {
       url,
       apiKey: typeof v["apiKey"] === "string" ? v["apiKey"] : "",
     });
+  }
+  return out;
+}
+
+function normalizeCcKeyPool(raw: unknown): CcUpstreamKeyEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CcUpstreamKeyEntry[] = [];
+  const seenIds = new Set<string>();
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const v = item as Record<string, unknown>;
+    const apiKey = typeof v["apiKey"] === "string" ? v["apiKey"].trim() : "";
+    if (!apiKey) continue;
+    let id = typeof v["id"] === "string" ? v["id"].trim() : "";
+    if (!id || seenIds.has(id)) id = createCcUpstreamKeyId();
+    seenIds.add(id);
+    out.push({ id, apiKey });
+  }
+  return out;
+}
+
+function normalizeDisabledCcKeys(raw: unknown): DisabledCcUpstreamKey[] {
+  if (!Array.isArray(raw)) return [];
+  const out: DisabledCcUpstreamKey[] = [];
+  const seenIds = new Set<string>();
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const v = item as Record<string, unknown>;
+    const apiKey = typeof v["apiKey"] === "string" ? v["apiKey"].trim() : "";
+    if (!apiKey) continue;
+    let id = typeof v["id"] === "string" ? v["id"].trim() : "";
+    if (!id || seenIds.has(id)) id = createCcUpstreamKeyId();
+    seenIds.add(id);
+    const entry: DisabledCcUpstreamKey = {
+      id,
+      apiKey,
+      disabledReason: "upstream-key-unavailable",
+    };
+    if (typeof v["upstreamStatus"] === "number") entry.upstreamStatus = v["upstreamStatus"];
+    if (typeof v["disabledAt"] === "string") entry.disabledAt = v["disabledAt"];
+    if (typeof v["lastError"] === "string") entry.lastError = v["lastError"];
+    out.push(entry);
   }
   return out;
 }
@@ -155,20 +222,25 @@ export async function initSettings(): Promise<void> {
       }
     }
   }
+
+  const legacyCcKey = typeof loaded["ccUpstreamApiKey"] === "string" ? (loaded["ccUpstreamApiKey"] as string).trim() : "";
+  let ccUpstreamKeyPool = normalizeCcKeyPool(loaded["ccUpstreamKeyPool"]);
+  if (ccUpstreamKeyPool.length === 0 && legacyCcKey) {
+    ccUpstreamKeyPool = [{ id: createCcUpstreamKeyId(), apiKey: legacyCcKey }];
+  }
+
   _settings = {
     ...DEFAULTS,
     sillyTavernMode: typeof loaded["sillyTavernMode"] === "boolean" ? loaded["sillyTavernMode"] : DEFAULTS.sillyTavernMode,
-    reverseProxyEnabled: typeof loaded["reverseProxyEnabled"] === "boolean" ? loaded["reverseProxyEnabled"] : DEFAULTS.reverseProxyEnabled,
+    reverseProxyEnabled: typeof loaded["reverseProxyEnabled"] === "boolean" ? loaded["reverseProxyEnabled"] : ccUpstreamKeyPool.length > 0,
     reverseProxyMode: normalizeMode(loaded["reverseProxyMode"]),
     reverseProxyPool: pool,
     disabledUpstreamNodes: normalizeDisabledNodes(loaded["disabledUpstreamNodes"]),
     providerOverrides: normalizeOverrides(loaded["providerOverrides"]),
-    ccUpstreamApiKey: typeof loaded["ccUpstreamApiKey"] === "string" ? (loaded["ccUpstreamApiKey"] as string) : DEFAULTS.ccUpstreamApiKey,
+    ccUpstreamApiKey: legacyCcKey,
+    ccUpstreamKeyPool,
+    disabledCcUpstreamKeys: normalizeDisabledCcKeys(loaded["disabledCcUpstreamKeys"]),
   };
-}
-
-export function getCcUpstreamApiKey(): string {
-  return getSettings().ccUpstreamApiKey.trim() || process.env["CC_UPSTREAM_API_KEY"]?.trim() || "";
 }
 
 export function getSettings(): ServerSettings {
@@ -176,6 +248,62 @@ export function getSettings(): ServerSettings {
     _settings = { ...DEFAULTS };
   }
   return _settings;
+}
+
+export function getCcUpstreamApiKey(): string {
+  const settings = getSettings();
+  if (settings.reverseProxyEnabled && settings.ccUpstreamKeyPool.length > 0) {
+    return settings.ccUpstreamKeyPool[0]!.apiKey.trim();
+  }
+  return settings.ccUpstreamApiKey.trim() || process.env["CC_UPSTREAM_API_KEY"]?.trim() || "";
+}
+
+export function disableCcUpstreamKey(args: {
+  id: string;
+  upstreamStatus?: number;
+  lastError?: string;
+}): void {
+  const settings = getSettings();
+  const entry = settings.ccUpstreamKeyPool.find((e) => e.id === args.id);
+  if (!entry) return;
+
+  const nextPool = settings.ccUpstreamKeyPool.filter((e) => e.id !== args.id);
+  const disabled: DisabledCcUpstreamKey = {
+    id: entry.id,
+    apiKey: entry.apiKey,
+    disabledReason: "upstream-key-unavailable",
+    disabledAt: new Date().toISOString(),
+  };
+  if (args.upstreamStatus !== undefined) disabled.upstreamStatus = args.upstreamStatus;
+  if (args.lastError !== undefined) disabled.lastError = args.lastError;
+
+  updateSettings({
+    ccUpstreamKeyPool: nextPool,
+    disabledCcUpstreamKeys: [
+      ...settings.disabledCcUpstreamKeys.filter((e) => e.id !== args.id),
+      disabled,
+    ],
+    reverseProxyEnabled: nextPool.length > 0,
+  });
+}
+
+export function reEnableCcUpstreamKey(id: string): boolean {
+  const settings = getSettings();
+  const disabled = settings.disabledCcUpstreamKeys.find((e) => e.id === id);
+  if (!disabled) return false;
+
+  const nextDisabled = settings.disabledCcUpstreamKeys.filter((e) => e.id !== id);
+  const alreadyActive = settings.ccUpstreamKeyPool.some((e) => e.id === id);
+  const nextPool = alreadyActive
+    ? settings.ccUpstreamKeyPool
+    : [...settings.ccUpstreamKeyPool, { id: disabled.id, apiKey: disabled.apiKey }];
+
+  updateSettings({
+    ccUpstreamKeyPool: nextPool,
+    disabledCcUpstreamKeys: nextDisabled,
+    reverseProxyEnabled: true,
+  });
+  return true;
 }
 
 /**
@@ -194,7 +322,6 @@ export function disableUpstreamNode(args: {
   const settings = getSettings();
   const url = args.url.trim().replace(/\/+$/, "");
 
-  // Determine node type from URL
   let type: UpstreamNodeType = "replit-app";
   try {
     const parsed = new URL(url);
@@ -204,10 +331,8 @@ export function disableUpstreamNode(args: {
     // default to replit-app
   }
 
-  // Remove from active pool
   const newPool = settings.reverseProxyPool.filter((e) => e.url !== url);
 
-  // Build disabled entry
   const entry: DisabledUpstreamNode = {
     url,
     type,
@@ -219,7 +344,6 @@ export function disableUpstreamNode(args: {
   if (args.upstreamStatus !== undefined) entry.upstreamStatus = args.upstreamStatus;
   if (args.lastError !== undefined) entry.lastError = args.lastError;
 
-  // Replace or append in disabled list
   const newDisabled = settings.disabledUpstreamNodes.filter((e) => e.url !== url);
   newDisabled.push(entry);
 
@@ -228,7 +352,6 @@ export function disableUpstreamNode(args: {
     disabledUpstreamNodes: newDisabled,
   };
 
-  // If pool is now empty, disable the proxy (do not touch mode or overrides)
   if (newPool.length === 0) {
     patch.reverseProxyEnabled = false;
   }
@@ -241,9 +364,6 @@ export function updateSettings(patch: Partial<ServerSettings>): ServerSettings {
   const next: ServerSettings = { ...current, ...patch };
 
   if (patch.reverseProxyPool) {
-    // Pool is replaced atomically; preserve existing keys when an entry with
-    // the same URL is resubmitted with a blank apiKey (the route layer also
-    // applies null-vs-empty semantics before we get here).
     const seen = new Set<string>();
     const cleaned: PoolEntry[] = [];
     for (const e of patch.reverseProxyPool) {
@@ -253,6 +373,34 @@ export function updateSettings(patch: Partial<ServerSettings>): ServerSettings {
       cleaned.push({ url, apiKey: e.apiKey ?? "" });
     }
     next.reverseProxyPool = cleaned;
+  }
+
+  if (patch.ccUpstreamKeyPool) {
+    const seen = new Set<string>();
+    const cleaned: CcUpstreamKeyEntry[] = [];
+    for (const e of patch.ccUpstreamKeyPool) {
+      const apiKey = (e.apiKey ?? "").trim();
+      if (!apiKey) continue;
+      let id = (e.id ?? "").trim();
+      if (!id || seen.has(id)) id = createCcUpstreamKeyId();
+      seen.add(id);
+      cleaned.push({ id, apiKey });
+    }
+    next.ccUpstreamKeyPool = cleaned;
+  }
+
+  if (patch.disabledCcUpstreamKeys) {
+    const seen = new Set<string>();
+    const cleaned: DisabledCcUpstreamKey[] = [];
+    for (const e of patch.disabledCcUpstreamKeys) {
+      const apiKey = (e.apiKey ?? "").trim();
+      if (!apiKey) continue;
+      let id = (e.id ?? "").trim();
+      if (!id || seen.has(id)) id = createCcUpstreamKeyId();
+      seen.add(id);
+      cleaned.push({ ...e, id, apiKey, disabledReason: "upstream-key-unavailable" });
+    }
+    next.disabledCcUpstreamKeys = cleaned;
   }
 
   if (patch.providerOverrides) {
@@ -281,4 +429,3 @@ export function updateSettings(patch: Partial<ServerSettings>): ServerSettings {
   writeJson("server_settings.json", _settings);
   return _settings;
 }
-

@@ -1,11 +1,15 @@
-﻿import { Router } from "express";
-import { getCcUpstreamApiKey } from "../lib/settings.js";
+import { Router } from "express";
+import { getSettings } from "../lib/settings.js";
+import { isCcUpstreamConfigured, peekNextCcKeyIndex } from "../lib/ccUpstreamKeys.js";
 
 const router = Router();
 
 router.get("/api/setup-status", (_req, res) => {
-  const cc = !!getCcUpstreamApiKey();
+  const settings = getSettings();
+  const cc = isCcUpstreamConfigured();
   const proxyKey = !!process.env["PROXY_API_KEY"];
+  const reverseProxy = settings.reverseProxyEnabled && settings.ccUpstreamKeyPool.length > 0;
+
   res.json({
     configured: cc || proxyKey,
     providers: {
@@ -13,11 +17,21 @@ router.get("/api/setup-status", (_req, res) => {
       proxyKey,
     },
     providerSources: {
-      "cc-claude-code": cc ? "settings" : null,
+      "cc-claude-code": cc ? (reverseProxy ? "upstream" : "settings") : null,
     },
-    reverseProxy: false,
-    pool: { size: 0, mode: "sticky", nextIndex: null },
-    nodes: { active: [], disabled: [] },
+    reverseProxy,
+    pool: {
+      size: settings.ccUpstreamKeyPool.length,
+      mode: settings.reverseProxyMode,
+      nextIndex: peekNextCcKeyIndex(),
+    },
+    nodes: {
+      active: settings.ccUpstreamKeyPool.map((e) => ({ id: e.id, type: "cc-api-key" })),
+      disabled: settings.disabledCcUpstreamKeys.map((e) => ({
+        id: e.id,
+        disabledReason: e.disabledReason,
+      })),
+    },
   });
 });
 

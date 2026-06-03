@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { fetchAdminModels, patchModel, patchProviderModels, type ModelEntry } from "../lib/api";
 
 const PROVIDER_LABELS: Record<string, string> = {
