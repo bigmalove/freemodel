@@ -30,6 +30,7 @@ export interface CcThinkingPayload {
 }
 
 export const DEFAULT_CC_RAW_MODELS: CcRawModel[] = [
+  { id: "claude-fable-5", created: 1626777600, owned_by: "anthropic" },
   { id: "claude-opus-4-8", created: 1626777600, owned_by: "anthropic" },
   { id: "claude-opus-4-7", created: 1626777600, owned_by: "anthropic" },
   { id: "claude-sonnet-4-6", created: 1626777600, owned_by: "anthropic" },
@@ -98,7 +99,7 @@ export function isOpus47Or48(model: string): boolean {
 }
 
 export function usesAdaptiveThinking(model: string): boolean {
-  return isOpus47Or48(model) || /^claude-(?:opus|sonnet)-4-6(?:$|-)/.test(model);
+  return isOpus47Or48(model) || /^claude-(?:opus|sonnet)-4-6(?:$|-)/.test(model) || /^claude-fable-5(?:$|-)/.test(model);
 }
 
 export function normalizeEffortForModel(model: string, level: ThinkingLevel): ThinkingLevel {
